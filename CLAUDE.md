@@ -8,7 +8,7 @@ MCP server for Microsoft Defender Advanced Hunting. Enables AI assistants to exe
 
 **Use case**: Users ask questions in natural language → AI translates to KQL → MCP executes against Defender → AI interprets results.
 
-**API**: Uses WindowsDefenderATP API (`api.securitycenter.microsoft.com`) for direct, fast access.
+**API**: Uses WindowsDefenderATP API (`api.security.microsoft.com`) for direct, fast access.
 
 ## Commands
 
@@ -60,7 +60,7 @@ src/mcp_defender/
    - `CertificateCredential` if `AZURE_CLIENT_CERTIFICATE_PATH` is set (recommended)
    - `ClientSecretCredential` if `AZURE_CLIENT_SECRET` is set (fallback)
 3. Optional: `AZURE_CLIENT_CERTIFICATE_PASSWORD` for encrypted certificates
-4. Gets token with scope: `https://api.securitycenter.microsoft.com/.default`
+4. Gets token with scope: `https://api.security.microsoft.com/.default`
 
 ## WindowsDefenderATP API
 
