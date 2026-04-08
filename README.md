@@ -24,13 +24,14 @@ AI interprets and explains the results
 - **Advanced Hunting**: Execute KQL queries against Defender's Advanced Hunting API
 - **Dynamic Schema Discovery**: Fetch available tables and columns directly from your Defender instance
 - **Natural Language Security Investigations**: Let AI translate your questions into KQL
-- **Certificate Authentication**: Secure authentication using Azure AD certificates (recommended)
+- **Flexible Authentication**: Interactive browser (delegated user auth), certificate, or client secret
 
 ## Prerequisites
 
 - Python 3.10+
-- Azure AD App Registration with WindowsDefenderATP permission:
-  - `AdvancedQuery.Read.All` - Run advanced queries
+- Azure AD App Registration (see [HOWTO-INTERACTIVE-APP.md](HOWTO-INTERACTIVE-APP.md) for setup)
+  - **Interactive browser (recommended):** Public client app, `Microsoft Threat Protection` → `AdvancedHunting.Read` (Delegated)
+  - **Service principal:** `Microsoft Threat Protection` → `AdvancedQuery.Read.All` (Application)
 
 ## Installation
 
@@ -61,19 +62,23 @@ pip install -e ".[dev]"
 2. Fill in your Azure AD credentials:
 
 ```bash
+# Option 1: Interactive browser — opens a browser for sign-in on first use (recommended)
+# Requires a public client app registration. See HOWTO-INTERACTIVE-APP.md.
 AZURE_TENANT_ID=your-tenant-id
 AZURE_CLIENT_ID=your-client-id
 
-# Option 1: Certificate authentication (recommended)
+# Option 2: Certificate authentication (service principal / no user required)
+AZURE_TENANT_ID=your-tenant-id
+AZURE_CLIENT_ID=your-client-id
 AZURE_CLIENT_CERTIFICATE_PATH=/path/to/combined.pem
 
-# Option 2: Client secret authentication
-# AZURE_CLIENT_SECRET=your-client-secret
+# Option 3: Client secret (service principal / no user required)
+AZURE_TENANT_ID=your-tenant-id
+AZURE_CLIENT_ID=your-client-id
+AZURE_CLIENT_SECRET=your-client-secret
 ```
 
-### Certificate Setup
-
-For certificate authentication, combine your private key and certificate:
+For certificate auth, combine your private key and certificate:
 
 ```bash
 cat private.key cert.pem > combined.pem
@@ -106,13 +111,14 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
       "env": {
         "PYTHONPATH": "/path/to/mcp-defender/src",
         "AZURE_TENANT_ID": "your-tenant-id",
-        "AZURE_CLIENT_ID": "your-client-id",
-        "AZURE_CLIENT_CERTIFICATE_PATH": "/path/to/combined.pem"
+        "AZURE_CLIENT_ID": "your-client-id"
       }
     }
   }
 }
 ```
+
+For certificate auth, add `"AZURE_CLIENT_CERTIFICATE_PATH": "/path/to/combined.pem"` to `env`.
 
 ## Available Tools
 
@@ -172,9 +178,9 @@ bandit -r src
 
 ## API Reference
 
-This server uses the WindowsDefenderATP API:
-- **Endpoint**: `https://api.securitycenter.microsoft.com`
-- **Advanced Hunting**: `POST /api/advancedqueries/run`
+This server uses the unified M365 Defender API:
+- **Endpoint**: `https://api.security.microsoft.com`
+- **Advanced Hunting**: `POST /api/advancedhunting/run`
 
 ## License
 

@@ -10,7 +10,7 @@ import os
 from typing import Any, cast
 
 import httpx
-from azure.identity import CertificateCredential, ClientSecretCredential
+from azure.identity import CertificateCredential, ClientSecretCredential, InteractiveBrowserCredential
 from dotenv import load_dotenv
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -24,13 +24,18 @@ server = Server("mcp-defender")
 DEFENDER_API_BASE = "https://api.security.microsoft.com"
 DEFENDER_SCOPE = "https://api.security.microsoft.com/.default"
 
-_credential: CertificateCredential | ClientSecretCredential | None = None
+_credential: CertificateCredential | ClientSecretCredential | InteractiveBrowserCredential | None = None
 
 
-from azure.identity import AzureCliCredential, CertificateCredential, ClientSecretCredential
+def get_credential() -> CertificateCredential | ClientSecretCredential | InteractiveBrowserCredential:
+    """Get or create Azure credential.
 
-def get_credential() -> AzureCliCredential | CertificateCredential | ClientSecretCredential:
-    """Get or create Azure credential."""
+    Priority:
+    1. CertificateCredential   – if AZURE_CLIENT_CERTIFICATE_PATH is set (app auth, no user)
+    2. ClientSecretCredential  – if AZURE_CLIENT_SECRET is set (app auth, no user)
+    3. InteractiveBrowserCredential – if only AZURE_TENANT_ID + AZURE_CLIENT_ID are set
+                                      (delegated/interactive, opens browser on first use)
+    """
     global _credential
     if _credential is None:
         tenant_id = os.environ.get("AZURE_TENANT_ID")
@@ -39,21 +44,6 @@ def get_credential() -> AzureCliCredential | CertificateCredential | ClientSecre
         certificate_path = os.environ.get("AZURE_CLIENT_CERTIFICATE_PATH")
         certificate_password = os.environ.get("AZURE_CLIENT_CERTIFICATE_PASSWORD")
 
-        # Try Azure CLI first (no config needed)
-        if not client_id and not client_secret and not certificate_path:
-            try:
-                _credential = AzureCliCredential()
-                # Test it works
-                _credential.get_token(DEFENDER_SCOPE)
-                return _credential
-            except Exception as e:
-                raise ValueError(
-                    "Azure CLI authentication failed. Run 'az login' first, "
-                    "or set AZURE_TENANT_ID and AZURE_CLIENT_ID with either "
-                    "AZURE_CLIENT_CERTIFICATE_PATH or AZURE_CLIENT_SECRET."
-                ) from e
-
-        # Fall back to existing certificate/secret logic
         if not tenant_id or not client_id:
             raise ValueError(
                 "Missing Azure credentials. "
@@ -74,9 +64,11 @@ def get_credential() -> AzureCliCredential | CertificateCredential | ClientSecre
                 client_secret=client_secret,
             )
         else:
-            raise ValueError(
-                "Missing authentication method. "
-                "Set AZURE_CLIENT_CERTIFICATE_PATH or AZURE_CLIENT_SECRET."
+            # Public client app: opens browser for interactive sign-in (auth code + PKCE).
+            # Not blocked by the "Block device code flow" CA policy.
+            _credential = InteractiveBrowserCredential(
+                tenant_id=tenant_id,
+                client_id=client_id,
             )
 
     return _credential
