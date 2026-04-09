@@ -29,9 +29,21 @@ AI interprets and explains the results
 ## Prerequisites
 
 - Python 3.10+
-- Azure AD App Registration (see [HOWTO-INTERACTIVE-APP.md](HOWTO-INTERACTIVE-APP.md) for setup)
-  - **Interactive browser (recommended):** Public client app, `Microsoft Threat Protection` → `AdvancedHunting.Read` (Delegated)
-  - **Service principal:** `Microsoft Threat Protection` → `AdvancedQuery.Read.All` (Application)
+- Azure AD App Registration (see [HOWTO-ENTRA-APPREG-DELEGATED.md](HOWTO-ENTRA-APPREG-DELEGATED.md) for step-by-step setup)
+
+## Required API Permissions
+
+### Interactive browser / delegated auth (recommended)
+
+Register a **Public client** app in Entra ID (no secret or certificate needed):
+
+- API permission: **Microsoft Threat Protection** → `AdvancedHunting.Read` (Delegated) — grant admin consent
+- The signed-in user needs **Security Reader** (or equivalent Defender "View Data" role)
+- Set `AZURE_TENANT_ID` and `AZURE_CLIENT_ID`; leave `AZURE_CLIENT_SECRET` and `AZURE_CLIENT_CERTIFICATE_PATH` unset
+
+### Service principal (certificate or client secret)
+
+- API permission: **Microsoft Threat Protection** → `AdvancedQuery.Read.All` (Application, admin consented)
 
 ## Installation
 
@@ -63,7 +75,7 @@ pip install -e ".[dev]"
 
 ```bash
 # Option 1: Interactive browser — opens a browser for sign-in on first use (recommended)
-# Requires a public client app registration. See HOWTO-INTERACTIVE-APP.md.
+# Requires a public client app registration. See HOWTO-ENTRA-APPREG-DELEGATED.md.
 AZURE_TENANT_ID=your-tenant-id
 AZURE_CLIENT_ID=your-client-id
 

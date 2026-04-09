@@ -1,4 +1,4 @@
-# Setting up interactive browser authentication
+# Entra ID app registration — delegated auth (interactive browser)
 
 This guide configures a **public client** app registration in Entra ID so that
 `mcp-defender` can authenticate as the signed-in user (delegated auth) without

@@ -10,32 +10,35 @@ MCP server for Microsoft Defender Advanced Hunting. Enables AI assistants to exe
 
 **Use case**: Users ask questions in natural language → AI translates to KQL → MCP executes against Defender → AI interprets results.
 
-**API**: Uses unified M365 Defender API (`api.security.microsoft.com`) covering all workloads (Device, Identity, Email, Cloud App, AI tables).
+## Key Files
 
-## Commands
-
-```bash
-# Install dependencies (first time setup)
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Run the MCP server
-mcp-defender
-
-# Run tests
-pytest
-
-# Run single test
-pytest tests/test_server.py::test_list_tools -v
-
-# Lint
-ruff check .
-ruff check --fix .  # auto-fix
-
-# Type check
-mypy src
 ```
+src/mcp_defender/server.py   # Entire server — credential init, token fetch, query execution, tool handlers
+tests/test_server.py         # Tool schema tests (no live API calls; mock-free, tests list_tools() only)
+pyproject.toml               # Entry point: mcp-msdefenderkql → mcp_defender.server:main
+HOWTO-ENTRA-APPREG-DELEGATED.md  # Step-by-step Entra ID app registration guide for delegated auth
+```
+
+## Architecture
+
+**Tools exposed** (exactly 2 — tests assert this):
+- `run_hunting_query` — executes KQL via `POST /api/advancedhunting/run`
+- `get_hunting_schema` — fetches available tables/columns from the same API
+
+**Key functions in `server.py`:**
+- `get_credential()` — lazy-initialized; checks env vars to pick credential type (see auth priority below)
+- `get_access_token()` — gets bearer token, scope `https://api.security.microsoft.com/.default`
+- `run_defender_query()` — httpx POST to `https://api.security.microsoft.com/api/advancedhunting/run`
+
+**Authentication priority in `get_credential()` — all require `AZURE_TENANT_ID` + `AZURE_CLIENT_ID`:**
+
+1. **CertificateCredential** — if `AZURE_CLIENT_CERTIFICATE_PATH` is set (optional: `AZURE_CLIENT_CERTIFICATE_PASSWORD`)
+2. **ClientSecretCredential** — if `AZURE_CLIENT_SECRET` is set
+3. **InteractiveBrowserCredential** — fallback; opens browser on first use, then caches token
+
+> **Why not `AzureCliCredential`?** The Azure CLI's own first-party app was never granted `AdvancedHunting.Read` — tokens only carry `user_impersonation`, which the Defender API rejects.
+>
+> **Why not `DeviceCodeCredential`?** Microsoft rolled out a default CA policy "Block device code flow" from Feb–May 2025. It will be blocked on most tenants.
 
 ## Bundled Claude Code Skill
 
@@ -43,54 +46,12 @@ mypy src
 
 `.claude/skills/defender-kql-workspace/` — skill evaluation suite. Contains `evals.json`, 3 iterations of 6 evals each (with/without skill), and HTML benchmark reviews. Run evals with `model=sonnet-4.6` and `effort=low`; view HTML results with `start <path>.html` on Windows.
 
-## Architecture
+## Commands
 
+```bash
+pip install -e ".[dev]"   # install with dev deps
+mcp-msdefenderkql         # run the server
+pytest                    # run tests (no live API needed)
+ruff check .              # lint
+mypy src                  # type check
 ```
-src/mcp_defender/
-  server.py      # Main MCP server - hunting tools only
-```
-
-**Tools exposed:**
-- `run_hunting_query` - Execute KQL queries against Defender Advanced Hunting
-- `get_hunting_schema` - Dynamically fetch available tables and columns
-
-**Key components in server.py:**
-- `server` - MCP Server instance
-- `get_credential()` - Lazy-initialized Azure credential
-- `get_access_token()` - Gets bearer token for Defender API
-- `run_defender_query()` - Executes KQL via httpx to Defender API
-- `list_tools()` - Declares the two hunting tools
-- `call_tool()` - Routes tool calls to handlers
-
-**Authentication (priority order in `get_credential()`):**
-
-All three require `AZURE_TENANT_ID` + `AZURE_CLIENT_ID`. Then:
-
-1. **CertificateCredential** — if `AZURE_CLIENT_CERTIFICATE_PATH` is set (optional: `AZURE_CLIENT_CERTIFICATE_PASSWORD`). Application auth, no user required.
-2. **ClientSecretCredential** — if `AZURE_CLIENT_SECRET` is set. Application auth, no user required.
-3. **InteractiveBrowserCredential** — fallback when only `AZURE_TENANT_ID` + `AZURE_CLIENT_ID` are set. Opens a browser for interactive sign-in (auth code + PKCE). Token is cached; browser only appears on first use or after expiry.
-
-All paths get a token with scope: `https://api.security.microsoft.com/.default`
-
-> **Why not `AzureCliCredential`?** The Azure CLI's own first-party app was never granted `AdvancedHunting.Read` — tokens only carry `user_impersonation`, which the Defender API rejects.
->
-> **Why not `DeviceCodeCredential`?** Microsoft rolled out a default CA policy "Block device code flow" from Feb–May 2025. It will be blocked on most tenants.
-
-## M365 Defender API
-
-- Endpoint: `https://api.security.microsoft.com`
-- Advanced Hunting: `POST /api/advancedhunting/run`
-- Request body: `{"Query": "<KQL>"}`
-- Response: `{"Schema": [...], "Results": [...], "Stats": {...}}`
-
-## Required API Permissions
-
-For **InteractiveBrowserCredential** (delegated / this fork's focus):
-- Register a **Public client** app in Entra ID (no secret or certificate needed)
-- Add API permission: **Microsoft Threat Protection** → `AdvancedHunting.Read` (Delegated)
-- Grant admin consent
-- Set `AZURE_TENANT_ID` and `AZURE_CLIENT_ID`; leave `AZURE_CLIENT_SECRET` and `AZURE_CLIENT_CERTIFICATE_PATH` unset
-- The signed-in user needs **Security Reader** (or equivalent Defender "View Data" role)
-
-For **CertificateCredential / ClientSecretCredential** (application auth):
-- App registration needs: **Microsoft Threat Protection** → `AdvancedQuery.Read.All` (Application type, admin consented)
