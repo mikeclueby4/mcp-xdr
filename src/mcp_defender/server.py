@@ -9,6 +9,10 @@ import asyncio
 import os
 from typing import Any, cast
 
+import truststore
+
+truststore.inject_into_ssl()
+
 import httpx
 from azure.identity import CertificateCredential, ClientSecretCredential, InteractiveBrowserCredential
 from dotenv import load_dotenv
