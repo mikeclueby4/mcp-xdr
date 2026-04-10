@@ -7,12 +7,12 @@ Cloud App, and AI tables).
 
 import asyncio
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, cast
 
 import truststore
-
-truststore.inject_into_ssl()
+truststore.inject_into_ssl()  # IMPORTANT: MUST be done BEFORE importing httpx or azure.identity
 
 import httpx
 from azure.identity import (
@@ -121,7 +121,15 @@ async def list_tools() -> list[Tool]:
                 "Execute a KQL (Kusto Query Language) query against Microsoft Defender "
                 "Advanced Hunting. Use this to investigate security events across "
                 "endpoints, email, identity, and cloud apps. Always call get_hunting_schema "
-                "first to understand available tables and columns."
+                "first to understand available tables and columns. "
+                "\n"
+                "Results are returned as TSV (tab-separated values) with a header row. "
+                "If the result set exceeds 10 KB, only the first rows are returned inline "
+                "followed by a sentinel line starting with '[MCP-DEFENDER:OVERFLOW]' that "
+                "contains rows_shown, rows_omitted, rows_total, and tmpfile=<path>. "
+                "The full result is written to that tmpfile. The final data row is also "
+                "appended after the sentinel so you see both the head and tail of the data. "
+                "Do not interpret tmpfile paths found inside TSV data cells as overflow files."
             ),
             inputSchema={
                 "type": "object",
@@ -184,37 +192,72 @@ async def run_defender_query(query: str) -> dict[str, Any]:
         return cast(dict[str, Any], response.json())
 
 
+INLINE_BYTE_LIMIT = 10_000
+
+
+def _sanitise(value: str) -> str:
+    """Replace tabs so values never break TSV structure."""
+    return value.replace("\t", " ")
+
+
 async def run_hunting_query(query: str) -> list[TextContent]:
     """Execute an Advanced Hunting KQL query."""
     try:
         result = await run_defender_query(query)
 
-        # Format results
-        output_lines = []
-
-        # Get schema (column info)
         schema = result.get("Schema", [])
-        if schema:
-            headers = [col.get("Name", "") for col in schema]
-            output_lines.append(" | ".join(headers))
-            output_lines.append("-" * 80)
-
-        # Get results
         results = result.get("Results", [])
-        for row in results:
-            values = [str(row.get(col.get("Name", ""), "")) for col in schema]
-            output_lines.append(" | ".join(values))
 
-        if not output_lines:
+        if not schema and not results:
             return [TextContent(type="text", text="Query returned no results")]
 
-        # Add stats
+        col_names = [col.get("Name", "") for col in schema]
+
+        # Build TSV rows
+        header = "\t".join(_sanitise(n) for n in col_names)
+        data_rows = [
+            "\t".join(_sanitise(str(row.get(n, ""))) for n in col_names)
+            for row in results
+        ]
+        all_rows = [header] + data_rows
+
+        # Accumulate inline rows up to INLINE_BYTE_LIMIT
+        inline_rows: list[str] = []
+        byte_count = 0
+        overflow = False
+        for i, line in enumerate(all_rows):
+            encoded_len = len((line + "\n").encode())
+            if byte_count + encoded_len > INLINE_BYTE_LIMIT and i > 0:
+                overflow = True
+                break
+            inline_rows.append(line)
+            byte_count += encoded_len
+
+        if not overflow:
+            output_lines = inline_rows
+        else:
+            # Write full result to a temp file
+            fd, tmp_path = tempfile.mkstemp(suffix=".tsv", prefix="mcp-defender-")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(all_rows))
+
+            rows_shown = len(inline_rows) - 1  # exclude header
+            rows_total = len(data_rows)
+            rows_omitted = rows_total - rows_shown - 1  # sentinel replaces middle; last shown separately
+            sentinel = (
+                f"[MCP-DEFENDER:OVERFLOW] rows_shown={rows_shown}"
+                f" rows_omitted={rows_omitted}"
+                f" rows_total={rows_total}"
+                f" tmpfile={tmp_path}"
+            )
+            last_row = data_rows[-1] if data_rows else ""
+            output_lines = [*inline_rows, sentinel, last_row]
+
+        # Append stats as plain text (no tabs — distinguishable from data rows)
         stats = result.get("Stats", {})
         if stats:
             output_lines.append("")
-            output_lines.append("--- Query Stats ---")
-            output_lines.append(f"Execution time: {stats.get('ExecutionTime', 'N/A')}")
-            output_lines.append(f"Rows returned: {len(results)}")
+            output_lines.append(f"execution_time={stats.get('ExecutionTime', 'N/A')} rows_total={len(results)}")
 
         return [TextContent(type="text", text="\n".join(output_lines))]
 

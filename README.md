@@ -136,7 +136,7 @@ For certificate auth, add `"AZURE_CLIENT_CERTIFICATE_PATH": "/path/to/combined.p
 
 | Tool | Description |
 |------|-------------|
-| `run_hunting_query` | Execute KQL queries against Advanced Hunting |
+| `run_hunting_query` | Execute KQL queries against Advanced Hunting. Returns TSV with a header row. Results over ~10 KB are truncated inline; the full result is written to a tmpfile whose path is reported in a `[MCP-DEFENDER:OVERFLOW]` marker line. |
 | `get_hunting_schema` | Get available tables and columns dynamically |
 
 ## Example Natural Language Queries

@@ -22,7 +22,7 @@ HOWTO-ENTRA-APPREG-DELEGATED.md  # Step-by-step Entra ID app registration guide 
 ## Architecture
 
 **Tools exposed** (exactly 2 — tests assert this):
-- `run_hunting_query` — executes KQL via `POST /api/advancedhunting/run`
+- `run_hunting_query` — executes KQL via `POST /api/advancedhunting/run`; returns TSV with a header row. Results over ~10 KB are truncated: a `[MCP-DEFENDER:OVERFLOW]` sentinel line records counts and the path of a tmpfile containing the full result.
 - `get_hunting_schema` — fetches available tables/columns from the same API
 
 **Key functions in `server.py`:**
@@ -46,7 +46,7 @@ HOWTO-ENTRA-APPREG-DELEGATED.md  # Step-by-step Entra ID app registration guide 
 
 `.claude/skills/defender-kql-workspace/` — skill evaluation suite. Contains `evals.json`, 3 iterations of 6 evals each (with/without skill), and HTML benchmark reviews. Run evals with `model=sonnet-4.6` and `effort=low`; view HTML results with `start <path>.html` on Windows.
 
-## Commands
+## Commands (or `uv` equivalents)
 
 ```bash
 pip install -e ".[dev]"   # install with dev deps
