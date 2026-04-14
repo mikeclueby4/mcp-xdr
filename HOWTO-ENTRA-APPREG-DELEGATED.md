@@ -220,6 +220,6 @@ if the credential is compromised it can only be used interactively (browser requ
 
 This guide covers only the delegated case. If you are setting up service principal auth,
 you own that security boundary — Defender exposes sensitive user and enterprise data and
-the `AdvancedQuery.Read.All` application permission should be treated with the same care
+the `ThreatHunting.Read.All` application permission should be treated with the same care
 as any other tenant-wide credential.
 
