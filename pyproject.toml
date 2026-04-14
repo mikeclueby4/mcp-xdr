@@ -59,7 +59,7 @@ Issues = "https://github.com/mikeclueby4/mcp-defender/issues"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.23.0",
     "ruff>=0.3.0",
     "mypy>=1.9.0",
