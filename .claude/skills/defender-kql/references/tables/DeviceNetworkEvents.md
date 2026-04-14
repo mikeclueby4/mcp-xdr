@@ -49,13 +49,34 @@ Live example from an inbound SMB connection:
 
 ## Timestamp vs TimeGenerated
 
-- `Timestamp` — when the event occurred on the endpoint (use this for time filters)
-- `TimeGenerated` — when the record was ingested into the workspace. Normally project away.
+- `Timestamp` — when the event occurred on the endpoint (use this for time filters via `run_hunting_query`)
+- `TimeGenerated` — when the record was ingested into the workspace. Use this when querying via `run_sentinel_query` (Sentinel mirror of MDE tables).
 
-Always filter on `Timestamp`:
+## RemoteHostname does not exist
+
+There is no `RemoteHostname` column. The destination hostname is in `RemoteUrl` (may include full path/scheme). `RemoteIP` holds the resolved IP.
+
+## ActionType vocabulary — beyond ConnectionSuccess/Failed
+
+| ActionType | Meaning |
+|---|---|
+| `ConnectionSuccess` | Outbound TCP handshake completed |
+| `ConnectionFailed` | TCP connection attempt failed (no SYN-ACK received) |
+| `ConnectionAcknowledged` | Inbound connection — device received a SYN-ACK (server role). No `InitiatingProcess*` context. |
+| `DnsConnectionInspected` | Passive DNS traffic observation — DNS was seen in flight, not a TCP open/close event. `InitiatingProcessFileName` is typically empty. Does **not** reveal the query name or answer. |
+| `IcmpConnectionInspected` | Zeek-style ICMP record. `AdditionalFields` contains Zeek fields: `conn_state`, `orig_pkts`, `orig_bytes`, `resp_pkts`, `resp_bytes`. `resp_pkts == 0` / `resp_bytes == 0` means the remote host is silently dropping packets — strong indicator of server-side IP block. |
+
 ```kql
-| where Timestamp > ago(7d)
+// Detecting silent server-side IP block via ICMP:
+| where ActionType == "IcmpConnectionInspected"
+| extend af = parse_json(AdditionalFields)
+| where toint(af.resp_pkts) == 0
+// One-way traffic: device is sending, server is not responding at all
 ```
+
+## ConnectionAcknowledged as a liveness probe
+
+Presence of `ConnectionAcknowledged` for a destination IP means the server completed the TCP handshake at that point in time. If later attempts show `ConnectionFailed` to the same IP with **no** `ConnectionAcknowledged`, the server has stopped responding — consistent with a server-side firewall/WAF block rather than a local policy block.
 
 ## Inbound connections have no initiating process context
 

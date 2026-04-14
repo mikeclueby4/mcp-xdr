@@ -194,6 +194,16 @@ EmailEvents
 
 ---
 
+## Investigation playbooks
+
+When a user describes a problem rather than naming a table, read the relevant playbook from `references/investigations/` before writing any query. These cover table combinations and gotchas that are non-obvious from table schemas alone.
+
+| Playbook | When to use |
+|---|---|
+| `references/investigations/connectivity.md` | User reports `ERR_CONNECTION_TIMED_OUT`, site unreachable, intermittent web access, "works from one location but not another", browser connectivity failures on a specific device |
+
+---
+
 ## General KQL hygiene
 
 **Time filter** — always include one; default to last 3 days unless the user specifies otherwise:
@@ -238,6 +248,8 @@ The tenant has these notable tables that may need extra care:
 | `CloudStorageAggregatedEvents` | Aggregated Azure storage access; note `DataAggregationStartTime/EndTime` rather than a single `Timestamp`. |
 | `EntraIdSignInEvents` | **Defender table — returns empty via `run_hunting_query` in this tenant** (silent RBAC filter, same as SecurityIncident). Use `SigninLogs` + `AADNonInteractiveUserSignInLogs` via `run_sentinel_query` instead. Schema differs: `Timestamp` not `TimeGenerated`, columns like `AccountUpn`/`EntraIdDeviceId`. |
 | `AADSignInEventsBeta` | Deprecated Dec 9, 2025 — replaced by `EntraIdSignInEvents`. Also returns empty via `run_hunting_query`. Do not use for new queries. |
+| `Device*` tables (`DeviceNetworkEvents`, `DeviceEvents`, `DeviceInfo`, `DeviceProcessEvents`, etc.) | **Also return empty via `run_hunting_query` in this tenant** — same silent RBAC/routing filter as EntraIdSignInEvents. Despite being MDE-sourced XDR tables (not Sentinel-native), they must be queried via `run_sentinel_query`. Confirmed via `Usage` table: these tables have substantial daily ingest. Always verify with `Usage` if `run_hunting_query` returns unexpected empty results. |
+| `NetworkAccessTraffic` | Global Secure Access (Entra Internet/Private Access) traffic log. Uses `TimeGenerated` not `Timestamp`. Rich columns: `Action`, `PolicyName`, `RuleName`, `DestinationFqdn`, `DestinationUrl`, `DestinationWebCategories`, `ThreatType`, `ConnectionStatus`, `UserPrincipalName`. **Empty in this tenant** — GSA not deployed or logs not flowing. |
 
 ## Entra ID / AAD sign-in table family
 
