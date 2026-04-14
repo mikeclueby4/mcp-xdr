@@ -17,6 +17,7 @@ allowed-tools:
   - WebFetch(domain:raw.githubusercontent.com, path:raw/MicrosoftDocs/**)  # direct fetch of markdown docs as last resort
   - Read({baseDir}/references/**)
   - Write({baseDir}/references/tables/**)
+  - Write({baseDir}/references/investigations/**)
 ---
 
 # Defender Advanced Hunting & Sentinel — KQL Guidance
@@ -51,13 +52,13 @@ When unsure which tool: try `get_sentinel_tables` first — if the table is list
 
 1. `get_hunting_schema(table_name="<TableName>")` — get column names and types
 2. `run_hunting_query("TableName | take 3")` — see real data shapes and value formats
-3. **Read `references/tables/<TableName>.md`** if it exists — accumulated learnings about column types, gotchas, and high-value columns that are not obvious from the schema alone. Do steps 1–3 in parallel.
+3. **Read `${CLAUDE_SKILL_DIR}/references/tables/<TableName>.md`** if it exists — accumulated learnings about column types, gotchas, and high-value columns that are not obvious from the schema alone. Do steps 1–3 in parallel.
 
 This is especially important for tables with `dynamic` columns (bags of key/value pairs whose keys aren't visible in the schema). Skipping this step leads to queries that look valid but return nothing.
 
 The base directory for this skill is `!echo ${CLAUDE_SKILL_DIR}`.
 
-**When you discover something surprising** — an unexpected column type, a column whose values are much larger than expected, a field name that differs from what the schema implies, behaviour that contradicts what you'd assume — write it to `references/tables/<TableName>.md` immediately (create the file if it doesn't exist). Tersely state what IS (leave reasoning freedom for future AI readers), and when relevant, a minimal KQL example showing working pattern. This keeps the knowledge base growing across sessions. Document audience is yourself, the AI agent.
+**When you discover something surprising** — an unexpected column type, a column whose values are much larger than expected, a field name that differs from what the schema implies, behaviour that contradicts what you'd assume — write it to `${CLAUDE_SKILL_DIR}/references/tables/<TableName>.md` immediately (create the file if it doesn't exist). Tersely state what IS (leave reasoning freedom for future AI readers), and when relevant, a minimal KQL example showing working pattern. This keeps the knowledge base growing across sessions. Document audience is yourself, the AI agent.
 
 **This repo is public — never write tenant-specific information into any reference file.** No UPNs, device names, group names, user names, organisation names, or internal naming conventions. Keep all examples generic (e.g. `user@example.com`, `DEVICE-001`).
 
@@ -196,7 +197,7 @@ EmailEvents
 
 ## Investigation playbooks
 
-When a user describes a problem rather than naming a table, read the relevant playbook from `references/investigations/` before writing any query. These cover table combinations and gotchas that are non-obvious from table schemas alone.
+When a user describes a problem rather than naming a table, read the relevant playbook from `${CLAUDE_SKILL_DIR}/references/investigations/` before writing any query. These cover table combinations and gotchas that are non-obvious from table schemas alone.
 
 | Playbook | When to use |
 |---|---|
@@ -302,3 +303,11 @@ UrlClickEvents                 Usage                            UserPeerAnalytic
 ```
 
 Note: many of these are duplicates of Defender XDR tables (Defender ingests into Sentinel). For XDR tables, `run_hunting_query` has richer query support and fresher data; `run_sentinel_query` gives access to longer retention and older data.
+
+
+## Local tenant facts (the only place where local tenant information may be written)
+
+The following text is a pure transclude of `${CLAUDE_SKILL_DIR}/tenant.local.md`:
+
+@tenant.local.md
+

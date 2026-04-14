@@ -4,5 +4,18 @@
       "type": "http",
       "url": "https://learn.microsoft.com/api/mcp"
     }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "run_hunting_query|run_sentinel_query",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/remind-references.sh"
+          }
+        ]
+      }
+    ]
   }
 }
