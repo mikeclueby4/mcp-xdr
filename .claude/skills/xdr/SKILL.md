@@ -1,11 +1,11 @@
 ---
-name: defender-kql
+name: xdr
 description: >
   Expert guidance for writing and executing KQL queries against Microsoft Defender
-  Advanced Hunting via the mcp-defender MCP server. Use this skill whenever the user
+  Advanced Hunting via the mcp-xdr MCP server. Use this skill whenever the user
   asks about security events, threat hunting, investigating alerts, querying Defender
   tables, or anything involving KQL / Advanced Hunting — even if they don't say
-  "defender-kql" explicitly. Also invoke for questions like "show me devices that...",
+  "xdr" explicitly. Also invoke for questions like "show me devices that...",
   "find sign-ins from...", "hunt for...", or "what happened to <entity>".
 allowed-tools:
   - get_hunting_schema   # Defender Advanced Hunting schema discovery

@@ -1,1 +1,1 @@
-"""Tests for mcp-defender."""
+"""Tests for mcp-xdr."""

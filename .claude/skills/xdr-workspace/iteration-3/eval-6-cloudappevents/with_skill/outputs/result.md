@@ -7,7 +7,7 @@ Hunt for OAuth apps in CloudAppEvents that accessed significantly more data or n
 
 ## Approach
 
-Following the defender-kql skill protocol:
+Following the `xdr` skill protocol:
 1. Fetched MS Learn docs for CloudAppEvents table
 2. Retrieved live schema via `get_hunting_schema`
 3. Sampled live data with `take 3` to understand dynamic column shapes

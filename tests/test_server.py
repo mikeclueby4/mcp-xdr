@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from mcp_defender.server import INLINE_BYTE_LIMIT, list_tools, run_hunting_query, run_sentinel_query
+from mcp_xdr.server import INLINE_BYTE_LIMIT, list_tools, run_hunting_query, run_sentinel_query
 
 # Synthetic lorem text (~60 chars) used to bulk up rows for overflow tests
 _LOREM = "Lorem ipsum dolor sit amet, consectetur adipiscing elit pad"
@@ -39,7 +39,7 @@ async def test_list_tools_without_sentinel_workspace():
     """Without SENTINEL_WORKSPACE_ID, only 2 tools are exposed."""
     with patch.dict(os.environ, {}, clear=False):
         # Ensure the module-level variable sees no workspace ID by reloading
-        import mcp_defender.server as srv
+        import mcp_xdr.server as srv
         original = srv._sentinel_workspace_id
         srv._sentinel_workspace_id = None
         try:
@@ -57,7 +57,7 @@ async def test_list_tools_without_sentinel_workspace():
 @pytest.mark.asyncio
 async def test_list_tools_with_sentinel_workspace():
     """With SENTINEL_WORKSPACE_ID set, 4 tools are exposed."""
-    import mcp_defender.server as srv
+    import mcp_xdr.server as srv
     original = srv._sentinel_workspace_id
     srv._sentinel_workspace_id = "fake-workspace-id"
     try:
@@ -78,7 +78,7 @@ async def test_list_tools_with_sentinel_workspace():
 @pytest.mark.asyncio
 async def test_run_hunting_query_tool_schema():
     """Test that run_hunting_query has correct input schema."""
-    import mcp_defender.server as srv
+    import mcp_xdr.server as srv
     original = srv._sentinel_workspace_id
     srv._sentinel_workspace_id = None
     try:
@@ -93,7 +93,7 @@ async def test_run_hunting_query_tool_schema():
 @pytest.mark.asyncio
 async def test_get_hunting_schema_tool_schema():
     """Test that get_hunting_schema has correct input schema."""
-    import mcp_defender.server as srv
+    import mcp_xdr.server as srv
     original = srv._sentinel_workspace_id
     srv._sentinel_workspace_id = None
     try:
@@ -107,8 +107,8 @@ async def test_get_hunting_schema_tool_schema():
 
 @pytest.mark.asyncio
 async def test_run_hunting_query_small_result_no_overflow():
-    """Small result set (<10 KB) returns pure TSV with no sentinel."""
-    with patch("mcp_defender.server.run_hunting_query_raw", new=AsyncMock(return_value=_make_api_result(5))):
+    """Small result set (<INLINE_BYTE_LIMIT) returns pure TSV with no sentinel."""
+    with patch("mcp_xdr.server.run_hunting_query_raw", new=AsyncMock(return_value=_make_api_result(5))):
         contents = await run_hunting_query("DeviceEvents | take 5")
 
     text = contents[0].text
@@ -118,15 +118,15 @@ async def test_run_hunting_query_small_result_no_overflow():
     data_lines = [l for l in lines[1:] if l]
     for line in data_lines:
         assert line.count("\t") == 1, f"Expected 1 tab in: {line!r}"
-    assert not any("[MCP-DEFENDER:OVERFLOW]" in l for l in lines)
+    assert not any("[MCP-XDR:OVERFLOW]" in l for l in lines)
     assert len(data_lines) == 5
 
 
 @pytest.mark.asyncio
 async def test_run_hunting_query_large_result_overflow():
-    """Large result set (>10 KB) emits inline rows, sentinel, and last row; writes tmpfile."""
+    """Large result set (>INLINE_BYTE_LIMIT) emits inline rows, sentinel, and last row; writes full_results_file."""
     num_rows = 300
-    with patch("mcp_defender.server.run_hunting_query_raw", new=AsyncMock(return_value=_make_api_result(num_rows))):
+    with patch("mcp_xdr.server.run_hunting_query_raw", new=AsyncMock(return_value=_make_api_result(num_rows))):
         contents = await run_hunting_query("DeviceEvents | take 300")
 
     text = contents[0].text
@@ -134,14 +134,14 @@ async def test_run_hunting_query_large_result_overflow():
 
     assert lines[0] == "LineNum\tLoremIpsum"
 
-    sentinel_lines = [l for l in lines if l.startswith("[MCP-DEFENDER:OVERFLOW]")]
+    sentinel_lines = [l for l in lines if l.startswith("[MCP-XDR:OVERFLOW]")]
     assert len(sentinel_lines) == 1
     sentinel = sentinel_lines[0]
 
     rows_shown = int(re.search(r"rows_shown=(\d+)", sentinel).group(1))  # type: ignore[union-attr]
     rows_omitted = int(re.search(r"rows_omitted=(\d+)", sentinel).group(1))  # type: ignore[union-attr]
     rows_total = int(re.search(r"rows_total=(\d+)", sentinel).group(1))  # type: ignore[union-attr]
-    tmp_path = re.search(r"tmpfile=(\S+)", sentinel).group(1)  # type: ignore[union-attr]
+    tmp_path = re.search(r"full_results_file=(\S+)", sentinel).group(1)  # type: ignore[union-attr]
 
     assert rows_total == num_rows
     assert rows_shown + rows_omitted + 1 == rows_total
@@ -155,7 +155,7 @@ async def test_run_hunting_query_large_result_overflow():
     assert inline_bytes <= INLINE_BYTE_LIMIT
 
     try:
-        assert os.path.exists(tmp_path), f"tmpfile not found: {tmp_path}"
+        assert os.path.exists(tmp_path), f"full_results_file not found: {tmp_path}"
         with open(tmp_path, encoding="utf-8") as f:
             file_lines = f.read().splitlines()
         assert len(file_lines) == num_rows + 1  # header + data rows
@@ -166,8 +166,8 @@ async def test_run_hunting_query_large_result_overflow():
 
 @pytest.mark.asyncio
 async def test_run_sentinel_query_small_result_no_overflow():
-    """Sentinel small result set (<10 KB) returns pure TSV with no overflow sentinel."""
-    with patch("mcp_defender.server.run_sentinel_query_raw", new=AsyncMock(return_value=_make_sentinel_api_result(5))):
+    """Sentinel small result set (<INLINE_BYTE_LIMIT) returns pure TSV with no overflow sentinel."""
+    with patch("mcp_xdr.server.run_sentinel_query_raw", new=AsyncMock(return_value=_make_sentinel_api_result(5))):
         contents = await run_sentinel_query("SecurityAlert | take 5")
 
     text = contents[0].text
@@ -177,15 +177,15 @@ async def test_run_sentinel_query_small_result_no_overflow():
     data_lines = [l for l in lines[1:] if l]
     for line in data_lines:
         assert line.count("\t") == 1, f"Expected 1 tab in: {line!r}"
-    assert not any("[MCP-DEFENDER:OVERFLOW]" in l for l in lines)
+    assert not any("[MCP-XDR:OVERFLOW]" in l for l in lines)
     assert len(data_lines) == 5
 
 
 @pytest.mark.asyncio
 async def test_run_sentinel_query_large_result_overflow():
-    """Sentinel large result set (>10 KB) emits overflow sentinel + tmpfile."""
+    """Sentinel large result set (>INLINE_BYTE_LIMIT) emits overflow sentinel + full_results_file."""
     num_rows = 300
-    with patch("mcp_defender.server.run_sentinel_query_raw", new=AsyncMock(return_value=_make_sentinel_api_result(num_rows))):
+    with patch("mcp_xdr.server.run_sentinel_query_raw", new=AsyncMock(return_value=_make_sentinel_api_result(num_rows))):
         contents = await run_sentinel_query("SecurityAlert | take 300")
 
     text = contents[0].text
@@ -193,14 +193,14 @@ async def test_run_sentinel_query_large_result_overflow():
 
     assert lines[0] == "LineNum\tLoremIpsum"
 
-    sentinel_lines = [l for l in lines if l.startswith("[MCP-DEFENDER:OVERFLOW]")]
+    sentinel_lines = [l for l in lines if l.startswith("[MCP-XDR:OVERFLOW]")]
     assert len(sentinel_lines) == 1
     sentinel = sentinel_lines[0]
 
     rows_shown = int(re.search(r"rows_shown=(\d+)", sentinel).group(1))  # type: ignore[union-attr]
     rows_omitted = int(re.search(r"rows_omitted=(\d+)", sentinel).group(1))  # type: ignore[union-attr]
     rows_total = int(re.search(r"rows_total=(\d+)", sentinel).group(1))  # type: ignore[union-attr]
-    tmp_path = re.search(r"tmpfile=(\S+)", sentinel).group(1)  # type: ignore[union-attr]
+    tmp_path = re.search(r"full_results_file=(\S+)", sentinel).group(1)  # type: ignore[union-attr]
 
     assert rows_total == num_rows
     assert rows_shown + rows_omitted + 1 == rows_total
@@ -211,7 +211,7 @@ async def test_run_sentinel_query_large_result_overflow():
     assert inline_bytes <= INLINE_BYTE_LIMIT
 
     try:
-        assert os.path.exists(tmp_path), f"tmpfile not found: {tmp_path}"
+        assert os.path.exists(tmp_path), f"full_results_file not found: {tmp_path}"
         with open(tmp_path, encoding="utf-8") as f:
             file_lines = f.read().splitlines()
         assert len(file_lines) == num_rows + 1

@@ -1,7 +1,7 @@
 # Entra ID app registration — delegated auth (interactive browser)
 
 This guide configures a **public client** app registration in Entra ID so that
-`mcp-defender` can authenticate as the signed-in user (delegated auth) without
+`mcp-xdr` can authenticate as the signed-in user (delegated auth) without
 requiring a certificate or client secret.
 
 > **API migration note (Feb 2027 deadline):** This server now uses the
@@ -33,7 +33,7 @@ requiring a certificate or client secret.
 1. Go to [entra.microsoft.com](https://entra.microsoft.com)
 2. Navigate to **Identity → Applications → App registrations → New registration**
 3. Fill in:
-   - **Name:** `MCP-DefenderKQL (delegated auth)` (or any name you prefer)
+   - **Name:** `MCP-XDR (delegated auth)` (or any name you prefer)
    - **Supported account types:** Accounts in this organizational directory only
    - **Redirect URI:** Platform = **Public client/native (mobile & desktop)**,
      URI = `http://localhost`
@@ -142,7 +142,7 @@ If you have an existing app registration with `AdvancedHunting.Read` on
 - Grant admin consent
 - The old `AdvancedHunting.Read` permission can be removed after confirming the new API
   works — it is harmless to leave it, but it will stop being used after February 1, 2027
-- Delete `~/.mcp-defender-auth-record.json` so the server re-authenticates and picks up
+- Delete `~/.mcp-xdr/auth-record.json` so the server re-authenticates and picks up
   the new scope on first run
 
 ---
@@ -172,14 +172,14 @@ AZURE_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 On first start the server opens a browser tab for the user to sign in. After
 successful sign-in the token is stored in an OS-encrypted persistent cache
-(`mcp-defender`, isolated from the shared `msal.cache` used by Azure CLI and
-VS Code). An `AuthenticationRecord` is written to `~/.mcp-defender-auth-record.json`.
+(`mcp-xdr`, isolated from the shared `msal.cache` used by Azure CLI and
+VS Code). An `AuthenticationRecord` is written to `~/.mcp-xdr/auth-record.json`.
 
 On all subsequent starts the server authenticates silently from the cache — **no
 browser prompt** — until the refresh token expires. Refresh tokens for
 non-interactive (non-PIM) sessions typically last 90 days with activity, so in
 practice you should rarely need to re-authenticate. To force a fresh login, delete
-`~/.mcp-defender-auth-record.json`.
+`~/.mcp-xdr/auth-record.json`.
 
 > 💡 `InteractiveBrowserCredential` opens the browser via a local loopback
 > redirect (`http://localhost`) — it spins up a temporary HTTP listener to receive

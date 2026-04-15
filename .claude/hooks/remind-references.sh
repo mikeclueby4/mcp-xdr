@@ -17,7 +17,7 @@ if grep -qE '(\[MCP-DEFENDER:OVERFLOW\]|BadRequest|SyntaxError|"error"|error at 
   printf '%s\n' '{
     "hookSpecificOutput": {
       "hookEventName": "PostToolUse",
-      "additionalContext": "Reminder (defender-kql skill): if this result revealed anything surprising — unexpected column types, silent empty results, IP format quirks, schema discrepancies, error patterns — document it in references/tables/<TableName>.md while the detail is fresh. See SKILL.md for content guidelines (no tenant-specific data)."
+      "additionalContext": "Reminder (`xdr` skill): if this result revealed anything surprising — unexpected column types, silent empty results, IP format quirks, schema discrepancies, error patterns — document it in references/tables/<TableName>.md while the detail is fresh. See SKILL.md for content guidelines (no tenant-specific data)."
     }
   }'
 fi

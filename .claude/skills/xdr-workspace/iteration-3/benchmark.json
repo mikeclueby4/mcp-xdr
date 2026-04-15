@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "skill_name": "defender-kql",
-    "skill_path": "C:/Users/mioltrav/.claude/skills/defender-kql",
+    "skill_name": "xdr",
+    "skill_path": "C:/Users/mioltrav/.claude/skills/xdr",
     "executor_model": "claude-sonnet-4-6",
     "analyzer_model": "claude-sonnet-4-6",
     "timestamp": "2026-04-09T00:00:00Z",

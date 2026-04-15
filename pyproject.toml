@@ -1,5 +1,5 @@
 [project]
-name = "mcp-msdefenderkql"
+name = "mcp-xdr"
 version = "2.0.0"
 description = "MCP server for Microsoft Defender Advanced Hunting and Microsoft Sentinel - execute KQL queries via natural language"
 readme = "README.md"
@@ -53,9 +53,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mikeclueby4/mcp-defender"
-Repository = "https://github.com/mikeclueby4/mcp-defender"
-Issues = "https://github.com/mikeclueby4/mcp-defender/issues"
+Homepage = "https://github.com/mikeclueby4/mcp-xdr"
+Repository = "https://github.com/mikeclueby4/mcp-xdr"
+Issues = "https://github.com/mikeclueby4/mcp-xdr/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -67,14 +67,14 @@ dev = [
 ]
 
 [project.scripts]
-mcp-msdefenderkql = "mcp_defender.server:main"
+mcp-xdr = "mcp_xdr.server:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mcp_defender"]
+packages = ["src/mcp_xdr"]
 
 [tool.ruff]
 target-version = "py310"

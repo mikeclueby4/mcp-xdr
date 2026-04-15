@@ -1,18 +1,8 @@
-# MCP Defender
-
-This repo is a fork of [trickyfalcon/mcp-defender](https://github.com/trickyfalcon/mcp-defender).
+# mcp-xdr
 
 An MCP (Model Context Protocol) server for Microsoft Defender Advanced Hunting and Microsoft Sentinel. Enables AI assistants to investigate security events using natural language by translating queries to KQL and executing them against Defender or Sentinel.
 
-## Why fork?
-
-The upstream repo authenticates as a **service principal** (certificate or client secret), which requires an application-permission app registration and admin consent for `AdvancedQuery.Read.All`. This fork defaults to **`InteractiveBrowserCredential`** — auth code + PKCE — so the server authenticates as the signed-in user instead. The app registration then only needs **delegated** permission (`ThreatHunting.Read.All` on Microsoft Graph), and no secret or certificate is needed, which reduces blast radius on the app.
-
-This fork also:
-- Migrates from the retired `api.security.microsoft.com` endpoint to the **Microsoft Graph Security API** (`graph.microsoft.com/v1.0/security/runHuntingQuery`)
-- Adds **Microsoft Sentinel / Log Analytics** support (`run_sentinel_query`, `get_sentinel_tables`)
-- Ships a bundled **Claude Code skill** for expert KQL authoring against both Defender and Sentinel
-- **Enables all GitHub public-repo security features** (dependabot, codeql, vuln alerting, etc)
+Batteries and sharp knives included: `xdr` skill that self-improves and gets better at writing queries as it goes. Yeah, I'm a little scared, too.
 
 ## How It Works
 
@@ -90,10 +80,10 @@ cat private.key cert.pem > combined.pem
 
 ```bash
 # Recommended: install with uv
-uv tool install git+https://github.com/mikeclueby4/mcp-defender
+uv tool install git+https://github.com/mikeclueby4/mcp-xdr
 
 # Or with pip
-pip install git+https://github.com/mikeclueby4/mcp-defender
+pip install git+https://github.com/mikeclueby4/mcp-xdr
 ```
 
 ## Usage
@@ -102,13 +92,13 @@ pip install git+https://github.com/mikeclueby4/mcp-defender
 
 ```bash
 # After installing with uv tool install / pip install:
-mcp-msdefenderkql
+mcp-xdr
 
 # Or run directly without installing (uv handles the venv):
-uvx --from git+https://github.com/mikeclueby4/mcp-defender mcp-msdefenderkql
+uvx --from git+https://github.com/mikeclueby4/mcp-xdr mcp-xdr
 
 # Test interactively with MCP Inspector:
-npx @modelcontextprotocol/inspector mcp-msdefenderkql
+npx @modelcontextprotocol/inspector mcp-xdr
 ```
 
 ### Claude Code / Claude Desktop Configuration
@@ -122,7 +112,7 @@ Add to your MCP settings. Use the `uvx` form so no prior install step is needed:
   "mcpServers": {
     "defender": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/mikeclueby4/mcp-defender", "mcp-msdefenderkql"],
+      "args": ["--from", "git+https://github.com/mikeclueby4/mcp-xdr", "mcp-xdr"],
       "env": {
         "AZURE_TENANT_ID": "your-tenant-id",
         "AZURE_CLIENT_ID": "your-client-id"
@@ -139,7 +129,7 @@ Add to your MCP settings. Use the `uvx` form so no prior install step is needed:
   "mcpServers": {
     "defender": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/mikeclueby4/mcp-defender", "mcp-msdefenderkql"],
+      "args": ["--from", "git+https://github.com/mikeclueby4/mcp-xdr", "mcp-xdr"],
       "env": {
         "AZURE_TENANT_ID": "your-tenant-id",
         "AZURE_CLIENT_ID": "your-client-id"
@@ -156,7 +146,7 @@ For certificate auth, also add `"AZURE_CLIENT_CERTIFICATE_PATH": "/path/to/combi
 
 | Tool | Description |
 |------|-------------|
-| `run_hunting_query` | Execute KQL queries against Defender Advanced Hunting (Microsoft Graph Security API). Returns TSV with a header row. Results over ~10 KB are truncated inline; the full result is written to a tmpfile whose path is reported in a `[MCP-DEFENDER:OVERFLOW]` marker line. |
+| `run_hunting_query` | Execute KQL queries against Defender Advanced Hunting (Microsoft Graph Security API). Returns TSV with a header row. Results over ~10 KB are truncated inline; the full result is written to a tmpfile whose path is reported in a `[MCP-XDR:OVERFLOW]` marker line. |
 | `get_hunting_schema` | Get available Defender Advanced Hunting tables and columns |
 | `run_sentinel_query` | Execute KQL queries against a Log Analytics workspace (Sentinel). Same TSV/overflow output format. Only available when `SENTINEL_WORKSPACE_ID` is set. |
 | `get_sentinel_tables` | List all tables in the configured Log Analytics workspace. Only available when `SENTINEL_WORKSPACE_ID` is set. |
@@ -171,33 +161,9 @@ Once connected to Claude, you can ask:
 - *"List all devices that haven't checked in for 7 days"*
 - *"Show me failed sign-ins from my Sentinel workspace in the last 24 hours"*
 
-## Example KQL Queries
-
-```kql
-// Find failed logon attempts
-DeviceLogonEvents
-| where ActionType == "LogonFailed"
-| where Timestamp > ago(24h)
-| summarize FailedAttempts = count() by AccountName, DeviceName
-| top 10 by FailedAttempts
-
-// Detect suspicious PowerShell
-DeviceProcessEvents
-| where FileName in~ ("powershell.exe", "pwsh.exe")
-| where ProcessCommandLine has_any ("encodedcommand", "bypass", "hidden", "downloadstring")
-| project Timestamp, DeviceName, AccountName, ProcessCommandLine
-
-// Network connections to external IPs
-DeviceNetworkEvents
-| where RemoteIPType == "Public"
-| where Timestamp > ago(1h)
-| summarize ConnectionCount = count() by DeviceName, RemoteIP
-| top 20 by ConnectionCount
-```
-
 ## Claude Code Skill
 
-This repo ships a bundled **`defender-kql` Claude Code skill** in [`.claude/skills/defender-kql/`](.claude/skills/defender-kql/). It is loaded automatically when you open this repository in Claude Code.
+This repo ships a bundled **`xdr` Claude Code skill** in [`.claude/skills/xdr/`](.claude/skills/xdr/). It is loaded automatically when you open this repository in Claude Code.
 
 The skill provides expert guidance for writing KQL against Defender Advanced Hunting and Sentinel, including:
 
@@ -206,9 +172,21 @@ The skill provides expert guidance for writing KQL against Defender Advanced Hun
 - Defender-specific KQL syntax differences from standard ADX (no ternary, `let`+`join` limitations, double-serialized dynamic columns)
 - Table-specific notes for `AIAgentsInfo`, `ExposureGraphNodes`, `EntraIdSignInEvents`, and others
 - Entra/AAD table family split between Defender and Sentinel
-- **Auto-updating its own reference documentation** on "surprises" learned during operation.
+- **Auto-updating its own reference documentation** on "surprises" learned during operation.  Please pass me back some choice PRs on what your agent learns!
 
-The [`.claude/skills/defender-kql-workspace/`](.claude/skills/defender-kql-workspace/) folder contains the skill evaluation suite (6 evals across 3 iterations) used to measure and tune the skill.
+The [`.claude/skills/xdr-workspace/`](.claude/skills/xdr-workspace/) folder contains the skill evaluation suite (6 evals across 3 iterations) used to measure and tune the skill.
+
+## History
+
+This repo started as a fork of [trickyfalcon/mcp-defender](https://github.com/trickyfalcon/mcp-defender).
+
+The upstream repo authenticates as a **service principal** (certificate or client secret), which requires an application-permission app registration and admin consent for `AdvancedQuery.Read.All`. This fork defaults to **`InteractiveBrowserCredential`** — auth code + PKCE — so the server authenticates as the signed-in user instead. The app registration then only needs **delegated** permission (`ThreatHunting.Read.All` on Microsoft Graph), and no secret or certificate is needed, which reduces blast radius on the app.
+
+This fork also:
+- Migrates from the retired `api.security.microsoft.com` endpoint to the **Microsoft Graph Security API** (`graph.microsoft.com/v1.0/security/runHuntingQuery`)
+- Adds **Microsoft Sentinel / Log Analytics** support (`run_sentinel_query`, `get_sentinel_tables`)
+- Ships a bundled **Claude Code skill** for expert KQL authoring against both Defender and Sentinel
+- **Enables all GitHub public-repo security features** (dependabot, codeql, vuln alerting, etc)
 
 ## API Reference
 

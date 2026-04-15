@@ -1,12 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.mikeclueby4/mcp-msdefenderkql",
+  "name": "io.github.mikeclueby4/mcp-xdr",
   "description": "Execute KQL queries against Microsoft Defender Advanced Hunting and Microsoft Sentinel via natural language.",
   "version": "2.0.0",
   "packages": [
     {
       "registryType": "pypi",
-      "identifier": "mcp-msdefenderkql",
+      "identifier": "mcp-xdr",
       "version": "2.0.0",
       "transport": {
         "type": "stdio"
