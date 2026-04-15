@@ -202,6 +202,7 @@ When a user describes a problem rather than naming a table, read the relevant pl
 | Playbook | When to use |
 |---|---|
 | `references/investigations/connectivity.md` | User reports `ERR_CONNECTION_TIMED_OUT`, site unreachable, intermittent web access, "works from one location but not another", browser connectivity failures on a specific device |
+| `references/investigations/external-ti-apis.md` | Checking whether an IP, domain, or URL appears in external reputation/TI feeds; "is this IP known bad?"; "what ASN/country is this?"; "is this domain flagged?"; quick spot-check without querying Defender/Sentinel — covers keyless Tier 1 services and keyed Tier 2 services (AbuseIPDB, VirusTotal, GreyNoise, AlienVault OTX, IPQualityScore, IPinfo) |
 
 ---
 

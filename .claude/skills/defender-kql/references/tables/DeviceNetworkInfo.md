@@ -67,3 +67,9 @@ Each telemetry snapshot produces one row per network adapter (including inactive
 ## Useful for device location history investigations
 
 Combining `ConnectedNetworks[0].Name` (SSID/network name) with `DefaultGateways` and `DnsAddresses` gives a precise location fingerprint — e.g. office vs home vs guest WiFi — without needing GPS or physical records. This is valuable when correlating "it worked from location A but fails from location B".
+
+## Network Category (Public/Private/Domain) may not reflect actual trust level
+
+`ConnectedNetworks[].Category` reflects what Windows NLA assigned at connection time. On fleets where devices are not AD domain-joined, NLA cannot detect a domain controller and will never assign "Domain" — so corp and home networks may both appear as "Public" or "Private" depending on user response to the NLA prompt.
+
+Verify whether the observed distribution of Public/Private matches your expectations before using Category as a security discriminator in firewall rules. If corp networks are not being correctly identified as a specific profile, consider pushing Trusted Network Detection policy (via MDM/GPO or your VPN client's on-net detection) to reliably set the adapter's network category.
