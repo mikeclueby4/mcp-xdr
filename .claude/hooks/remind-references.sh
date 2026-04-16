@@ -13,7 +13,7 @@ result=$(jq -r '
 ' 2>/dev/null || true)
 
 # Fire reminder only on overflow (large result) or a KQL/API error
-if grep -qE '(\[MCP-DEFENDER:OVERFLOW\]|BadRequest|SyntaxError|"error"|error at line)' <<< "$result"; then
+if grep -qE '(\[MCP-XDR:OVERFLOW\]|BadRequest|SyntaxError|"error"|error at line)' <<< "$result"; then
   printf '%s\n' '{
     "hookSpecificOutput": {
       "hookEventName": "PostToolUse",
