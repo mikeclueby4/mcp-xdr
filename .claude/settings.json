@@ -5,7 +5,9 @@
       "mcp__mcp-xdr__get_hunting_schema",
       "mcp__mcp-xdr__get_sentinel_tables",
       "mcp__mcp-xdr__run_sentinel_query",
-      "mcp__mcp-xdr__get_schema"
+      "mcp__mcp-xdr__get_schema",
+      "Edit(/.claude/skills/xdr/references/**)",
+      "mcp__microsoft-learn__microsoft_docs_fetch"
     ]
   },
   "hooks": {

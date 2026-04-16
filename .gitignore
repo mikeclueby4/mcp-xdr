@@ -13,7 +13,8 @@
 
 # Project-specific excludes
 *.txt
-reports/
+reports/*
+!reports/.gitkeep
 
 # Python
 __pycache__/

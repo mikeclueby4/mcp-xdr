@@ -45,3 +45,7 @@ HOWTO-ENTRA-APPREG-DELEGATED.md  # Step-by-step Entra ID app registration guide 
 
 `.claude/skills/xdr-workspace/` — skill evaluation suite. Contains `evals.json`, etc. Run evals with `model=sonnet-4.6` and `effort=low`; view HTML results with `start <path>.html` on Windows.
 
+`.claude/agents/xdr-refine.md` — subagent spawned by the xdr skill when a surprising table behavior is discovered. Researches the finding (live schema, official docs, kql-facts.md) and updates the relevant `references/tables/<TableName>.md` file in isolation.
+
+**Agent file transclusion gotcha:** `.claude/agents/*.md` bodies are delivered as static system prompts — neither `@path` nor `` !`cmd` `` transclusion expands at load time. Only explicit `Read` tool calls work. Skill files (`.claude/skills/*/SKILL.md`) do support `` !`cmd` `` expansion via the skill attachment pipeline.
+
