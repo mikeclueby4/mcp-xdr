@@ -23,6 +23,22 @@ The `arg_max` deduplication is still required — multiple snapshot rows per use
 
 Columns always available (no Sentinel requirement): `AccountUpn`, `AccountName`, `AccountDisplayName`, `Department`, `JobTitle`, `IsAccountEnabled`, `EmailAddress`, `RiskLevel`, `RiskStatus`, `AssignedRoles`, `IdentityEnvironment`.
 
+## AssignedRoles — permanently assigned only, not PIM-eligible
+
+`AssignedRoles` captures **directly and permanently assigned** Entra directory roles. It does NOT reflect:
+
+- **PIM-eligible roles** that have not been activated — these are invisible in `IdentityInfo` until activated
+- **Group-based role assignments** — if a role is granted via a role-assignable group, it may or may not appear depending on Defender's identity sync implementation. The Graph API (`GET /users/{id}/transitiveMemberOf`) is authoritative for this.
+
+For point-in-time role state during a past session, `IdentityInfo` cannot reconstruct it — the table is a snapshot, not a history. Use `AuditLogs` PIM activation events for that (see `references/tables/AuditLogs.md`).
+
+```kql
+IdentityInfo
+| where Timestamp > ago(7d)
+| where AccountUpn == "user@example.com"
+| summarize arg_max(Timestamp, AssignedRoles, IsAccountEnabled) by AccountUpn
+```
+
 ## Guest/external accounts
 
 Guest accounts (B2B invites) appear with `#EXT#` in the UPN, e.g.:
