@@ -26,6 +26,6 @@ Columns always available (no Sentinel requirement): `AccountUpn`, `AccountName`,
 ## Guest/external accounts
 
 Guest accounts (B2B invites) appear with `#EXT#` in the UPN, e.g.:
-`firstname.lastname_otherdomain.tld#EXT#@ourtenant.onmicrosoft.com`
+`firstname.lastname_otherdomain.tld#EXT#@{tenant}.onmicrosoft.com`
 
 Filter them out with `| where AccountUpn !has "#EXT#"` if you only want internal members.

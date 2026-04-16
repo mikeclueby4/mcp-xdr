@@ -236,22 +236,22 @@ When a user describes a problem rather than naming a table, read the relevant pl
 
 ## Table coverage notes
 
-The tenant has these notable tables that may need extra care:
+Notable tables that may need extra care:
 
 | Table | Notes |
 |-------|-------|
 | `AIAgentsInfo` | Copilot Studio / AI agent inventory. `AgentToolsDetails`, `KnowledgeDetails`, `ConnectedAgentsSchemaNames` are dynamic — sample first. Data is sparse/snapshot-style — `ago(3d)` typically returns 0 rows; use `ago(90d)` or omit the time filter. |
 | `DeviceNetworkEvents` | See `references/tables/DeviceNetworkEvents.md`. Key gotchas: `Protocol` has both `"Tcp"` and `"TcpV4"` — use `startswith "Tcp"` not `== "Tcp"`; `ConnectionSuccess` ≠ allowed (network protection blocks post-handshake); `AdditionalFields` is double-serialized JSON string; inbound rows have no initiating process context. `ReportId` non-uniqueness: see "ReportId uniqueness" section above. |
-| `EntraIdSignInEvents` | GA replacement for `AADSignInEventsBeta`. Has `GatewayJA4` (TLS fingerprint) and `IsSignInThroughGlobalSecureAccess` — tenant uses Global Secure Access. |
+| `EntraIdSignInEvents` | GA replacement for `AADSignInEventsBeta`. Has `GatewayJA4` (TLS fingerprint) and `IsSignInThroughGlobalSecureAccess` (populated when Global Secure Access is deployed). |
 | `ExposureGraphNodes/Edges` | Security Exposure Management graph. `NodeProperties` keys vary by `NodeLabel` — the official docs don't enumerate them; always live-sample with `take 3` first. |
 | `GraphAPIAuditEvents` | MS Graph API audit log. `RequestUri` + `Scopes` + `TargetWorkload` are the key hunting columns. See `references/tables/GraphAPIAuditEvents.md` for column type gotchas (`RequestDuration`, `RequestUri` size). |
 | `OAuthAppInfo` | OAuth app inventory. See `references/tables/OAuthAppInfo.md` — key field is `OAuthAppId`; table is snapshot-based (one row per app per day). |
 | `MessageEvents` | Teams message security events (not email — that's `EmailEvents`). |
 | `CloudStorageAggregatedEvents` | Aggregated Azure storage access; note `DataAggregationStartTime/EndTime` rather than a single `Timestamp`. |
-| `EntraIdSignInEvents` | **Defender table — returns empty via `run_hunting_query` in this tenant** (silent RBAC filter, same as SecurityIncident). Use `SigninLogs` + `AADNonInteractiveUserSignInLogs` via `run_sentinel_query` instead. Schema differs: `Timestamp` not `TimeGenerated`, columns like `AccountUpn`/`EntraIdDeviceId`. |
-| `AADSignInEventsBeta` | Deprecated Dec 9, 2025 — replaced by `EntraIdSignInEvents`. Also returns empty via `run_hunting_query`. Do not use for new queries. |
-| `Device*` tables (`DeviceNetworkEvents`, `DeviceEvents`, `DeviceInfo`, `DeviceProcessEvents`, etc.) | **Also return empty via `run_hunting_query` in this tenant** — same silent RBAC/routing filter as EntraIdSignInEvents. Despite being MDE-sourced XDR tables (not Sentinel-native), they must be queried via `run_sentinel_query`. Confirmed via `Usage` table: these tables have substantial daily ingest. Always verify with `Usage` if `run_hunting_query` returns unexpected empty results. |
-| `NetworkAccessTraffic` | Global Secure Access (Entra Internet/Private Access) traffic log. Uses `TimeGenerated` not `Timestamp`. Rich columns: `Action`, `PolicyName`, `RuleName`, `DestinationFqdn`, `DestinationUrl`, `DestinationWebCategories`, `ThreatType`, `ConnectionStatus`, `UserPrincipalName`. **Empty in this tenant** — GSA not deployed or logs not flowing. |
+| `EntraIdSignInEvents` | **Defender table — may return empty via `run_hunting_query`** due to silent RBAC filtering (same pattern as SecurityIncident in some tenants). If empty, use `SigninLogs` + `AADNonInteractiveUserSignInLogs` via `run_sentinel_query`. Schema differs: `Timestamp` not `TimeGenerated`, columns like `AccountUpn`/`EntraIdDeviceId`. Always verify via `Usage` table if results seem unexpectedly empty. |
+| `AADSignInEventsBeta` | Deprecated Dec 9, 2025 — replaced by `EntraIdSignInEvents`. May also return empty via `run_hunting_query`. Do not use for new queries. |
+| `Device*` tables (`DeviceNetworkEvents`, `DeviceEvents`, `DeviceInfo`, `DeviceProcessEvents`, etc.) | **May return empty via `run_hunting_query`** in some tenants due to silent RBAC/routing filters — despite being MDE-sourced XDR tables. If empty, try `run_sentinel_query`. Always verify with `Usage` if `run_hunting_query` returns unexpected empty results. |
+| `NetworkAccessTraffic` | Global Secure Access (Entra Internet/Private Access) traffic log. Uses `TimeGenerated` not `Timestamp`. Rich columns: `Action`, `PolicyName`, `RuleName`, `DestinationFqdn`, `DestinationUrl`, `DestinationWebCategories`, `ThreatType`, `ConnectionStatus`, `UserPrincipalName`. Empty if GSA is not deployed or logs are not flowing. |
 
 ## Entra ID / AAD sign-in table family
 
@@ -259,7 +259,7 @@ Two completely separate families with overlapping data — do not confuse them:
 
 **Defender Advanced Hunting** (`run_hunting_query`) — XDR-native, `Timestamp`, flat schema:
 - `EntraIdSignInEvents` — replaces `AADSignInEventsBeta` (Dec 2025); covers both interactive and non-interactive in one table
-- ⚠️ **Both return empty in this tenant** — use Sentinel tables below instead
+- ⚠️ **Both may return empty in some tenants** (silent RBAC filter) — use Sentinel tables below if so
 
 **Sentinel / Log Analytics** (`run_sentinel_query`) — Azure Monitor diagnostic tables, `TimeGenerated`, richer schema, confirmed live as of 2026-04:
 

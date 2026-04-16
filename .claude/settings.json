@@ -15,6 +15,17 @@
             "command": "bash .claude/hooks/remind-references.sh"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "prompt",
+            "if": "Write(.claude/skills/**)|Edit(.claude/skills/**)",
+            "statusMessage": "Checking generalizability...",
+            "prompt": "You are a generalizability reviewer for a public open-source project. The file $ARGUMENTS was just written under .claude/skills/. Check only the written/changed content for non-generalizable prose that would be inappropriate in a public repo. Flag if it contains: possessive tenant references ('this tenant', 'our tenant', 'the tenant'), hardcoded internal values (real IP addresses, internal domain names, real org names, real ASNs), or factual claims stated as universal truths that are only true in one specific environment. The file tenant.local.md is intentionally tenant-specific — skip it. If you find issues, return JSON: {\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": \"GENERALIZABILITY WARNING in <filename>: <brief description of each issue>\"}}. If clean, return {}."
+          }
+        ]
       }
     ]
   }

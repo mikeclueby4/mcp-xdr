@@ -49,7 +49,7 @@ GET http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city,is
 
 Example response fields to check:
 ```json
-{ "proxy": true, "hosting": false, "isp": "Tele2 Sverige AB", "as": "AS1257 Tele2 Sverige AB", "country": "Sweden" }
+{ "proxy": true, "hosting": false, "isp": "Example ISP AB", "as": "AS12345 Example ISP AB", "country": "SE" }
 ```
 
 ---
@@ -99,9 +99,9 @@ Key response fields:
     "abuseConfidenceScore": 0,
     "totalReports": 0,
     "usageType": "Fixed Line ISP",
-    "isp": "Tele2 Sverige AB",
-    "domain": "tele2.se",
-    "countryCode": "SE"
+    "isp": "Example ISP AB",
+    "domain": "example-isp.example",
+    "countryCode": "XX"
   }
 }
 ```
