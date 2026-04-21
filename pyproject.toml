@@ -47,7 +47,7 @@ dependencies = [
     "mcp>=1.0.0",
     "azure-identity>=1.15.0",
     "httpx>=0.27.0",
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.2",
     "truststore>=0.9.1",
     "msal-extensions>=1.3.1",
 ]
