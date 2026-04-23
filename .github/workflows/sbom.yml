@@ -1,0 +1,24 @@
+name: SBOM
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed to upload the SBOM to the release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate SBOM and attach to release
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: sbom.spdx.json
+          upload-release-assets: true
