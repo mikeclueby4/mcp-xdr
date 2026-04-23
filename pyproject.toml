@@ -4,7 +4,7 @@ version = "2.0.0"
 description = "MCP server for Microsoft Defender Advanced Hunting and Microsoft Sentinel - execute KQL queries via natural language"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "mikeclueby4", email = "mikeclueby4@users.noreply.github.com" }
 ]
@@ -37,9 +37,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
     "Topic :: System :: Systems Administration",
 ]
@@ -77,14 +77,14 @@ build-backend = "hatchling.build"
 packages = ["src/mcp_xdr"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 strict = true
 
 [tool.pytest.ini_options]

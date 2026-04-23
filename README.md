@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server for Microsoft Defender Advanced Hunting and Microsoft Sentinel. Enables AI assistants to investigate security events using natural language by translating queries to KQL and executing them against Defender or Sentinel.
 
-Batteries and sharp knives included: `xdr` skill that self-improves and gets better at writing queries as it goes. Yeah, I'm a little scared, too.
+Batteries and sharp knives included in the source repo: `xdr` skill that self-improves and gets better at writing queries as it goes. Yeah, I'm a little scared, too.
 
 ## How It Works
 
@@ -13,8 +13,10 @@ AI translates to KQL using schema knowledge
   ↓
 MCP executes query against Defender or Sentinel API
   ↓
-AI interprets and explains the results
+AI interprets and explains the results. You can keep raw output as .tsv files. 
 ```
+
+Query logs and more is stored under your ~/.mcp-xdr/ folder.
 
 ## Features
 
@@ -26,8 +28,10 @@ AI interprets and explains the results
 
 ## Prerequisites
 
-- Python 3.10+ (or `uv` / `uvx` for zero-install usage)
+- Python 3.11+ (or `uv` / `uvx` for zero-install usage)
 - Azure AD App Registration — see [HOWTO-ENTRA-APPREG-DELEGATED.md](HOWTO-ENTRA-APPREG-DELEGATED.md) for step-by-step setup
+
+Technically 3.10 works, but please stop using it; it stops receiving security patches soon.
 
 ## Required API Permissions
 
@@ -37,7 +41,7 @@ Register a **Public client** app in Entra ID (no secret or certificate needed):
 
 - API permission: **Microsoft Graph** → `ThreatHunting.Read.All` (Delegated) — grant admin consent
 - For Sentinel: **Log Analytics API** → `Data.Read` (Delegated) — grant admin consent
-- The signed-in user needs **Security Reader** (or equivalent Defender "View Data" role)
+- The signed-in user needs **Security Reader** (or equivalent Defender "View Data" URBAC role)
 - Set `AZURE_TENANT_ID` and `AZURE_CLIENT_ID`; leave `AZURE_CLIENT_SECRET` and `AZURE_CLIENT_CERTIFICATE_PATH` unset
 
 See [HOWTO-ENTRA-APPREG-DELEGATED.md](HOWTO-ENTRA-APPREG-DELEGATED.md) for step-by-step setup.
@@ -100,6 +104,10 @@ uvx --from git+https://github.com/mikeclueby4/mcp-xdr mcp-xdr
 # Test interactively with MCP Inspector:
 npx @modelcontextprotocol/inspector mcp-xdr
 ```
+
+* **I** recommend you to run straight from github, because I keep the repo up to date with dependabot et al.
+* **You** have no reason to trust me - and running code straight from a repo is a rapid supply chain threat vector.
+* Your choice - you own the security boundary! :-) 
 
 ### Claude Code / Claude Desktop Configuration
 
@@ -182,10 +190,10 @@ The skill provides expert guidance for writing KQL against Defender Advanced Hun
 
 - Tool routing (Defender vs Sentinel) and pre-query schema inspection workflow
 - IP address comparison pitfalls (`ipv6_is_match()` for IPv4-mapped addresses)
-- Defender-specific KQL syntax differences from standard ADX (no ternary, `let`+`join` limitations, double-serialized dynamic columns)
-- Table-specific notes for `AIAgentsInfo`, `ExposureGraphNodes`, `EntraIdSignInEvents`, and others
+- Defender-specific KQL syntax quirks (no ternary, `let`+`join` limitations, double-serialized dynamic columns)
+- Table-specific notes for `AIAgentsInfo`, `ExposureGraphNodes`, `EntraIdSignInEvents` (auto updated).
 - Entra/AAD table family split between Defender and Sentinel
-- **Auto-updating its own reference documentation** on "surprises" learned during operation.  Please pass me back some choice PRs on what your agent learns!
+- **Auto-updating its own reference documentation** on "surprises" learned during operation.  *Please send me some choice PRs on what your agent learns*!
 
 The [`.claude/skills/xdr-workspace/`](.claude/skills/xdr-workspace/) folder contains the skill evaluation suite (6 evals across 3 iterations) used to measure and tune the skill.
 
@@ -193,11 +201,11 @@ The [`.claude/skills/xdr-workspace/`](.claude/skills/xdr-workspace/) folder cont
 
 This repo started as a fork of [trickyfalcon/mcp-defender](https://github.com/trickyfalcon/mcp-defender).
 
-The upstream repo authenticates as a **service principal** (certificate or client secret), which requires an application-permission app registration and admin consent for `AdvancedQuery.Read.All`. This fork defaults to **`InteractiveBrowserCredential`** — auth code + PKCE — so the server authenticates as the signed-in user instead. The app registration then only needs **delegated** permission (`ThreatHunting.Read.All` on Microsoft Graph), and no secret or certificate is needed, which reduces blast radius on the app.
+The upstream repo authenticates as a **service principal** (certificate or client secret). This fork adds and defaults to **`InteractiveBrowserCredential`**: the MCP server authenticates as the signed-in user instead. The app registration then only needs **delegated** permission (`ThreatHunting.Read.All` on Microsoft Graph), and no secret or certificate needs to live in the file system, which reduces blast radius on the app.  
 
 This fork also:
 - Migrates from the retired `api.security.microsoft.com` endpoint to the **Microsoft Graph Security API** (`graph.microsoft.com/v1.0/security/runHuntingQuery`)
-- Adds **Microsoft Sentinel / Log Analytics** support (`run_sentinel_query`, `get_sentinel_tables`)
+- Adds **Microsoft Sentinel / Log Analytics** support (`run_sentinel_query`)
 - Ships a bundled **Claude Code skill** for expert KQL authoring against both Defender and Sentinel
 - **Enables all GitHub public-repo security features** (dependabot, codeql, vuln alerting, etc)
 
