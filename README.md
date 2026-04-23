@@ -197,7 +197,7 @@ The upstream repo authenticates as a **service principal** (certificate or clien
 
 This fork also:
 - Migrates from the retired `api.security.microsoft.com` endpoint to the **Microsoft Graph Security API** (`graph.microsoft.com/v1.0/security/runHuntingQuery`)
-- Adds **Microsoft Sentinel / Log Analytics** support (`run_sentinel_query`, `get_sentinel_tables`)
+- Adds **Microsoft Sentinel / Log Analytics** support (`run_sentinel_query`)
 - Ships a bundled **Claude Code skill** for expert KQL authoring against both Defender and Sentinel
 - **Enables all GitHub public-repo security features** (dependabot, codeql, vuln alerting, etc)
 
