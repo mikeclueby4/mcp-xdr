@@ -61,5 +61,3 @@ python -m pytest tests/ -v   # all tests mocked, no live API calls
 `.claude/skills/xdr-workspace/` — eval suite (`evals.json`). Run with `model=sonnet-4.6`, `effort=low`; view results with `start <path>.html`.
 
 `.claude/agents/xdr-refine.md` — subagent for per-table reference doc updates.
-
-**Agent transclusion gotcha:** `.claude/agents/*.md` are static system prompts — `@path` and `` !`cmd` `` do not expand. Only `Read` tool calls work. Skill files (`.claude/skills/*/SKILL.md`) do support `` !`cmd` `` expansion.

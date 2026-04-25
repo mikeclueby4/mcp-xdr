@@ -1,14 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "mcp__mcp-xdr__run_hunting_query",
-      "mcp__mcp-xdr__get_hunting_schema",
-      "mcp__mcp-xdr__get_sentinel_tables",
-      "mcp__mcp-xdr__run_sentinel_query",
-      "mcp__mcp-xdr__get_schema",
-      "Edit(/.claude/skills/xdr/references/**)",
-      "Write(.claude/skills/xdr/references/tables/**)",
-      "mcp__microsoft-learn__microsoft_docs_fetch"
+      "mcp__mcp-xdr__*",
+      "Write(.claude/skills/xdr/references/**)",
+      "Agent(xdr-refine)",
+      "mcp__microsoft-learn__*"
     ]
   },
   "hooks": {
