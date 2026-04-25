@@ -42,6 +42,29 @@ When joining two tables on IPs, always normalize both sides with `parse_ipv6()` 
 
 ---
 
+### Azure Monitor / Log Analytics: underscore-prefixed system columns
+
+In Log Analytics (Sentinel) tables, columns prefixed with `_` (e.g. `_ResourceId`, `_SubscriptionId`, `_ResourceGroup`) are **system-generated** and reliably populated. Named schema columns that appear to carry the same data can be permanently blank — not just sparse at scale.
+
+**`AzureActivity`: `Resource` is always blank.** The resource name is not surfaced as a top-level column — it lives inside the `Properties` JSON string and in `_ResourceId`. Always use `_ResourceId` for resource-specific filtering:
+
+```kql
+// WRONG — Resource is always empty in AzureActivity
+AzureActivity
+| where Resource == "mystorageaccount"
+
+// RIGHT — _ResourceId is the full ARM path (lowercase), reliably populated
+AzureActivity
+| where _ResourceId has "/storageaccounts/mystorageaccount"
+```
+
+If you need the short resource name as a display column, extract it from `_ResourceId`:
+```kql
+| extend ResourceName = tostring(split(_ResourceId, "/")[-1])
+```
+
+---
+
 ### Defender KQL syntax gotchas
 
 These diverge from standard ADX/KQL and will silently produce parse errors or wrong results:

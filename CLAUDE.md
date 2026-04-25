@@ -1,51 +1,65 @@
 # CLAUDE.md
 
-GENERALIZABILITY NOTICE: Keep all documentation/comments generalized. No "in this tenant" explanations - rephrase as "some tenants" if safe or flag to the user for investigation and clarification on what is truthful factually-supported documentation to show to the public. 
+GENERALIZABILITY NOTICE: Keep all documentation/comments generalized. No "in this tenant" explanations - rephrase as "some tenants" if safe or flag to the user for investigation and clarification on what is truthful factually-supported documentation to show to the public.
 
 ## Project Overview
 
-Originally a **fork of [trickyfalcon/mcp-defender](https://github.com/trickyfalcon/mcp-defender)** — to replace app-registration certificate/secret auth with `InteractiveBrowserCredential` (auth code + PKCE), so the server authenticates as the signed-in user rather than a service principal. Requires only a public client app registration with `ThreatHunting.Read.All` (Delegated on Microsoft Graph) — no certificate or secret.
-
-Now completely rewritten and extended.
-
-MCP server for Microsoft Defender Advanced Hunting and Microsoft Sentinel. Enables AI assistants to execute KQL queries and investigate security events via natural language through the Model Context Protocol.
+MCP server for Microsoft Defender Advanced Hunting and Microsoft Sentinel. Enables AI assistants to execute KQL queries and investigate security events via natural language. Fork of [trickyfalcon/mcp-defender](https://github.com/trickyfalcon/mcp-defender), rewritten to use `InteractiveBrowserCredential` (auth code + PKCE) — authenticates as the signed-in user, requires only `ThreatHunting.Read.All` (Delegated), no certificate or secret.
 
 ## Key Files
 
 ```
-src/mcp_xdr/server.py   # Entire server — credential init, token fetch, query execution, tool handlers
-tests/test_server.py         # Unit tests: tool schema, overflow logic, get_schema listing/per-table modes (mocked, no live API calls)
-pyproject.toml               # Entry point: mcp-xdr → mcp_xdr.server:main
-HOWTO-ENTRA-APPREG-DELEGATED.md  # Step-by-step Entra ID app registration guide for delegated auth
-~/.mcp-xdr/logs/queries/     # Daily query logs (YYYY-MM-DD.md) — every tool call, query + result as seen by model
+src/mcp_xdr/_config.py         # Constants + _sentinel_workspace_id mutable state (no internal imports)
+src/mcp_xdr/_auth.py           # Azure credential init + token fetch (all azure-identity imports here only)
+src/mcp_xdr/_output.py         # TSV formatting, overflow logic, _append_query_log
+src/mcp_xdr/_client.py         # Raw httpx callers: run_hunting_query_raw, run_sentinel_query_raw, _sentinel_result_to_tsv
+src/mcp_xdr/_tools_hunting.py  # run_hunting_query tool + TOOL_DEFINITION
+src/mcp_xdr/_tools_sentinel.py # run_sentinel_query tool + TOOL_DEFINITION
+src/mcp_xdr/_tools_schema.py   # get_schema tool + TOOL_DEFINITION (schema listing + per-table)
+src/mcp_xdr/server.py          # Wire-up only: MCP Server object, tool registry, list_tools, call_tool, main
+tests/test_server.py           # Unit tests: tool schema, overflow, get_schema modes (mocked, no live API calls)
+pyproject.toml                 # Entry point: mcp-xdr → mcp_xdr.server:main
+HOWTO-ENTRA-APPREG-DELEGATED.md  # Entra ID app registration guide
+~/.mcp-xdr/logs/queries/       # Daily query logs (YYYY-MM-DD.md)
 ```
 
 ## Architecture
 
-**Tools exposed** (2 always present + 1 conditional on `SENTINEL_WORKSPACE_ID`):
-- `run_hunting_query` — executes KQL via the **Microsoft Graph Security API** (`POST graph.microsoft.com/v1.0/security/runHuntingQuery`); returns TSV with a header row. Results over ~10 KB are truncated: a `[MCP-XDR:OVERFLOW]` sentinel line records counts and the path of a tmpfile containing the full result.
-- `get_schema` — unified schema discovery:
-  - No args: lists all tables across Defender + Sentinel as TSV (`Table`, `Defender`, `Sentinel`, `SentinelLastSeen`, `SentinelMB`). `SentinelLastSeen`/`SentinelMB` come from the Log Analytics `Usage` table.
-  - With `table_name`: returns column schema (`ColumnName`, `ColumnType` from `getschema`) + up to 3 sample rows, queried concurrently from all available sources. Optional `source` param (`"defender"` | `"sentinel"`) restricts to one source.
-- `run_sentinel_query` — executes KQL via the **Log Analytics API** (`POST api.loganalytics.azure.com/v1/workspaces/{id}/query`); same TSV/overflow output format. Only registered when `SENTINEL_WORKSPACE_ID` is set.
+**Module DAG** (strictly acyclic):
+```
+_config  ←  _auth, _output  ←  _client  ←  _tools_*  ←  server
+```
+Adding a new Graph API tool: create `_tools_foo.py` (imports `_client`, `_output`, `_config`; exports `TOOL_DEFINITION` + handler), add one import + one entry to `_ALWAYS_TOOLS` in `server.py`. No other files change.
 
-**Authentication priority in `get_credential()` — all require `AZURE_TENANT_ID` + `AZURE_CLIENT_ID`:**
+**Tool registry** — `_ALWAYS_TOOLS` / `_SENTINEL_TOOLS` in `server.py` are `(Tool, handler_lambda)` lists iterated by `list_tools` and `call_tool`. Sentinel tool included only when `_config._sentinel_workspace_id` is set.
 
-1. **CertificateCredential** — if `AZURE_CLIENT_CERTIFICATE_PATH` is set (optional: `AZURE_CLIENT_CERTIFICATE_PASSWORD`)
-2. **ClientSecretCredential** — if `AZURE_CLIENT_SECRET` is set
-3. **InteractiveBrowserCredential** — fallback; opens browser on first use, then caches token persistently via `msal-extensions` (DPAPI on Windows); silent on subsequent starts until refresh token expires. `authenticate()` is called with only the Graph scope — the Sentinel token is acquired lazily on first use (avoids `AADSTS70011` multi-resource scope error).
+**Tools exposed** (2 permanent + 1 conditional on `SENTINEL_WORKSPACE_ID`):
+- `run_hunting_query` — Graph Security API (`POST /v1.0/security/runHuntingQuery`); TSV output, `[MCP-XDR:OVERFLOW]` line + tmpfile when result > 10 KB.
+- `get_schema` — no args: TSV table list with Defender/Sentinel/LastSeen/MB columns; with `table_name`: column schema + 3 sample rows from all sources concurrently.
+- `run_sentinel_query` — Log Analytics API (`POST api.loganalytics.azure.com/v1/workspaces/{id}/query`); same TSV/overflow format.
 
-> **Sentinel token scope gotcha:** Log Analytics scope is `ca7f3f0b-7d91-482c-8e09-c5d840d0eac5/.default` (SP app ID) — the URL alias `api.loganalytics.azure.com` is not in its `servicePrincipalNames`.
+**Auth priority** (all need `AZURE_TENANT_ID` + `AZURE_CLIENT_ID`): CertificateCredential → ClientSecretCredential → InteractiveBrowserCredential (browser on first use, DPAPI cache). Graph scope only at `authenticate()` time; Sentinel token acquired lazily to avoid `AADSTS70011`.
+
+> **Sentinel token scope:** use SP app ID `ca7f3f0b-7d91-482c-8e09-c5d840d0eac5/.default` — the URL alias is not in `servicePrincipalNames`.
+
+## Testing
+
+```bash
+python -m pytest tests/ -v   # all tests mocked, no live API calls
+```
+
+**Mock patch targets:** tool modules call `_client.run_hunting_query_raw(...)` via module reference (not `from`-imported). Patch at `"mcp_xdr._client.run_hunting_query_raw"` and `"mcp_xdr._client.run_sentinel_query_raw"` — these intercept all callers.
+
+**`_sentinel_workspace_id` in tests:** `import mcp_xdr._config as cfg; cfg._sentinel_workspace_id = "fake-ws"` (restore in `finally`). Never `from _config import` — that snapshots the value at import time.
 
 ## Bundled Claude Code Skill
 
-`.claude/skills/xdr/SKILL.md` — loaded automatically when this repo is open in Claude Code. Provides KQL authoring guidance: tool routing (Defender vs Sentinel), pre-query schema inspection, `ipv6_is_match()` for IP comparisons, Defender-specific syntax gotchas, Entra/AAD table family split, and per-table notes. The skill self-improves by updating its reference docs.
+`.claude/skills/xdr/SKILL.md` — KQL authoring guidance loaded automatically. Self-improves by updating `references/tables/<TableName>.md` via the `xdr-refine` subagent.
 
-`.claude/settings.json` — pre-registers the `microsoft-learn` MCP (`https://learn.microsoft.com/api/mcp`) for anyone opening this repo in Claude Code, enabling `microsoft_docs_fetch` which is listed in the skill's `allowed-tools`.
+`.claude/settings.json` — pre-registers `microsoft-learn` MCP for anyone opening this repo.
 
-`.claude/skills/xdr-workspace/` — skill evaluation suite. Contains `evals.json`, etc. Run evals with `model=sonnet-4.6` and `effort=low`; view HTML results with `start <path>.html` on Windows.
+`.claude/skills/xdr-workspace/` — eval suite (`evals.json`). Run with `model=sonnet-4.6`, `effort=low`; view results with `start <path>.html`.
 
-`.claude/agents/xdr-refine.md` — subagent spawned by the xdr skill when a surprising table behavior is discovered. Researches the finding (live schema, official docs, kql-facts.md) and updates the relevant `references/tables/<TableName>.md` file in isolation.
+`.claude/agents/xdr-refine.md` — subagent for per-table reference doc updates.
 
-**Agent file transclusion gotcha:** `.claude/agents/*.md` bodies are delivered as static system prompts — neither `@path` nor `` !`cmd` `` transclusion expands at load time. Only explicit `Read` tool calls work. Skill files (`.claude/skills/*/SKILL.md`) do support `` !`cmd` `` expansion via the skill attachment pipeline.
-
+**Agent transclusion gotcha:** `.claude/agents/*.md` are static system prompts — `@path` and `` !`cmd` `` do not expand. Only `Read` tool calls work. Skill files (`.claude/skills/*/SKILL.md`) do support `` !`cmd` `` expansion.

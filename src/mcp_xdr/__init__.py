@@ -1,3 +1,3 @@
-"""MCP server for Microsoft Defender Advanced Hunting."""
+"""MCP server for Microsoft XDR tooling (Defender Advanced Hunting, Sentinel, etc.)."""
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"

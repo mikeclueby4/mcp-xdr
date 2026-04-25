@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import mcp_xdr._config as cfg
 from mcp_xdr.server import INLINE_BYTE_LIMIT, list_tools, run_hunting_query, run_sentinel_query, get_schema
 
 # Synthetic lorem text (~60 chars) used to bulk up rows for overflow tests
@@ -119,9 +120,8 @@ def _make_sample_hunting_result(*cols: tuple[str, str]) -> dict:
 @pytest.mark.asyncio
 async def test_list_tools_without_sentinel_workspace():
     """Without SENTINEL_WORKSPACE_ID, 2 tools are exposed: run_hunting_query + get_schema."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = None
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = None
     try:
         tools = await list_tools()
         tool_names = [t.name for t in tools]
@@ -132,15 +132,14 @@ async def test_list_tools_without_sentinel_workspace():
         assert "get_hunting_schema" not in tool_names
         assert len(tools) == 2
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
 
 @pytest.mark.asyncio
 async def test_list_tools_with_sentinel_workspace():
     """With SENTINEL_WORKSPACE_ID set, 3 tools are exposed."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = "fake-workspace-id"
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = "fake-workspace-id"
     try:
         tools = await list_tools()
         tool_names = [t.name for t in tools]
@@ -153,30 +152,28 @@ async def test_list_tools_with_sentinel_workspace():
         assert "list_incidents" not in tool_names
         assert "list_alerts" not in tool_names
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
 
 @pytest.mark.asyncio
 async def test_run_hunting_query_tool_schema():
     """Test that run_hunting_query has correct input schema."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = None
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = None
     try:
         tools = await list_tools()
         query_tool = next(t for t in tools if t.name == "run_hunting_query")
         assert query_tool.inputSchema["required"] == ["query"]
         assert "query" in query_tool.inputSchema["properties"]
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
 
 @pytest.mark.asyncio
 async def test_get_schema_tool_schema():
     """Test that get_schema has correct input schema with table_name and source."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = None
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = None
     try:
         tools = await list_tools()
         schema_tool = next(t for t in tools if t.name == "get_schema")
@@ -184,7 +181,7 @@ async def test_get_schema_tool_schema():
         assert "table_name" in schema_tool.inputSchema["properties"]
         assert "source" in schema_tool.inputSchema["properties"]
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
 
 # ── run_hunting_query overflow tests ─────────────────────────────────────────
@@ -192,7 +189,7 @@ async def test_get_schema_tool_schema():
 @pytest.mark.asyncio
 async def test_run_hunting_query_small_result_no_overflow():
     """Small result set (<INLINE_BYTE_LIMIT) returns pure TSV with no sentinel."""
-    with patch("mcp_xdr.server.run_hunting_query_raw", new=AsyncMock(return_value=_make_api_result(5))):
+    with patch("mcp_xdr._client.run_hunting_query_raw", new=AsyncMock(return_value=_make_api_result(5))):
         contents = await run_hunting_query("DeviceEvents | take 5")
 
     text = contents[0].text
@@ -210,7 +207,7 @@ async def test_run_hunting_query_small_result_no_overflow():
 async def test_run_hunting_query_large_result_overflow():
     """Large result set (>INLINE_BYTE_LIMIT) emits inline rows, sentinel, and last row; writes full_results_file."""
     num_rows = 300
-    with patch("mcp_xdr.server.run_hunting_query_raw", new=AsyncMock(return_value=_make_api_result(num_rows))):
+    with patch("mcp_xdr._client.run_hunting_query_raw", new=AsyncMock(return_value=_make_api_result(num_rows))):
         contents = await run_hunting_query("DeviceEvents | take 300")
 
     text = contents[0].text
@@ -253,7 +250,7 @@ async def test_run_hunting_query_large_result_overflow():
 @pytest.mark.asyncio
 async def test_run_sentinel_query_small_result_no_overflow():
     """Sentinel small result set (<INLINE_BYTE_LIMIT) returns pure TSV with no overflow sentinel."""
-    with patch("mcp_xdr.server.run_sentinel_query_raw", new=AsyncMock(return_value=_make_sentinel_api_result(5))):
+    with patch("mcp_xdr._client.run_sentinel_query_raw", new=AsyncMock(return_value=_make_sentinel_api_result(5))):
         contents = await run_sentinel_query("SecurityAlert | take 5")
 
     text = contents[0].text
@@ -271,7 +268,7 @@ async def test_run_sentinel_query_small_result_no_overflow():
 async def test_run_sentinel_query_large_result_overflow():
     """Sentinel large result set (>INLINE_BYTE_LIMIT) emits overflow sentinel + full_results_file."""
     num_rows = 300
-    with patch("mcp_xdr.server.run_sentinel_query_raw", new=AsyncMock(return_value=_make_sentinel_api_result(num_rows))):
+    with patch("mcp_xdr._client.run_sentinel_query_raw", new=AsyncMock(return_value=_make_sentinel_api_result(num_rows))):
         contents = await run_sentinel_query("SecurityAlert | take 300")
 
     text = contents[0].text
@@ -311,15 +308,14 @@ async def test_run_sentinel_query_large_result_overflow():
 @pytest.mark.asyncio
 async def test_get_schema_listing_defender_only():
     """Listing mode with no Sentinel: TSV shows Defender=yes, Sentinel=-, empty activity cols."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = None
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = None
     try:
         mock_tables = _make_tables_hunting_result("AlertInfo", "DeviceEvents")
-        with patch("mcp_xdr.server.run_hunting_query_raw", new=AsyncMock(return_value=mock_tables)):
+        with patch("mcp_xdr._client.run_hunting_query_raw", new=AsyncMock(return_value=mock_tables)):
             contents = await get_schema(None, None)
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     lines = text.splitlines()
@@ -335,9 +331,8 @@ async def test_get_schema_listing_defender_only():
 @pytest.mark.asyncio
 async def test_get_schema_listing_both_sources():
     """Listing mode with Sentinel: merged table list with yes/- and LastSeen/MB from Usage."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = "fake-ws"
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = "fake-ws"
     try:
         def_tables = _make_tables_hunting_result("AlertInfo", "DefenderOnly")
         sen_tables = _make_tables_sentinel_result("AlertInfo", "SentinelOnly")
@@ -346,7 +341,6 @@ async def test_get_schema_listing_both_sources():
             ("SentinelOnly", "2026-04-16T01:00:00Z", 1234.5),
         )
 
-        call_count = 0
         sentinel_call_count = 0
 
         async def mock_hunting(query: str) -> dict:
@@ -359,29 +353,26 @@ async def test_get_schema_listing_both_sources():
                 return sen_usage
             return sen_tables
 
-        with patch("mcp_xdr.server.run_hunting_query_raw", new=mock_hunting):
-            with patch("mcp_xdr.server.run_sentinel_query_raw", new=mock_sentinel):
+        with patch("mcp_xdr._client.run_hunting_query_raw", new=mock_hunting):
+            with patch("mcp_xdr._client.run_sentinel_query_raw", new=mock_sentinel):
                 contents = await get_schema(None, None)
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     lines = text.splitlines()
     assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen\tSentinelMB"
     rows = {l.split("\t")[0]: l.split("\t") for l in lines[1:] if l}
 
-    # AlertInfo exists in both
     assert rows["AlertInfo"][1] == "yes"
     assert rows["AlertInfo"][2] == "yes"
     assert rows["AlertInfo"][3] == "2026-04-15T21:00:00Z"
     assert rows["AlertInfo"][4] == "40.32"
 
-    # DefenderOnly: Defender=yes, Sentinel=-
     assert rows["DefenderOnly"][1] == "yes"
     assert rows["DefenderOnly"][2] == "-"
     assert rows["DefenderOnly"][3] == ""
 
-    # SentinelOnly: Defender=-, Sentinel=yes
     assert rows["SentinelOnly"][1] == "-"
     assert rows["SentinelOnly"][2] == "yes"
     assert rows["SentinelOnly"][3] == "2026-04-16T01:00:00Z"
@@ -391,9 +382,8 @@ async def test_get_schema_listing_both_sources():
 @pytest.mark.asyncio
 async def test_get_schema_listing_usage_failure_graceful():
     """If Usage query fails, table list still returns with empty activity columns."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = "fake-ws"
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = "fake-ws"
     try:
         def_tables = _make_tables_hunting_result("AlertInfo")
         sen_tables = _make_tables_sentinel_result("AlertInfo")
@@ -406,16 +396,17 @@ async def test_get_schema_listing_usage_failure_graceful():
                 raise Exception("Usage table unavailable")
             return sen_tables
 
-        with patch("mcp_xdr.server.run_hunting_query_raw", new=mock_hunting):
-            with patch("mcp_xdr.server.run_sentinel_query_raw", new=mock_sentinel):
+        with patch("mcp_xdr._client.run_hunting_query_raw", new=mock_hunting):
+            with patch("mcp_xdr._client.run_sentinel_query_raw", new=mock_sentinel):
                 contents = await get_schema(None, None)
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     lines = text.splitlines()
     assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen\tSentinelMB"
-    row = lines[1].split("\t")
+    assert lines[1] == "[MCP-XDR:BLANK-COLS] always_empty=SentinelLastSeen, SentinelMB"
+    row = lines[2].split("\t")
     assert row[0] == "AlertInfo"
     assert row[3] == ""   # SentinelLastSeen empty due to failure
     assert row[4] == ""   # SentinelMB empty due to failure
@@ -426,9 +417,8 @@ async def test_get_schema_listing_usage_failure_graceful():
 @pytest.mark.asyncio
 async def test_get_schema_table_defender():
     """Per-table mode: Defender schema + sample rows returned and formatted correctly."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = None
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = None
     try:
         getschema_result = _make_getschema_hunting_result(
             ("Timestamp", "datetime"), ("DeviceId", "string")
@@ -444,10 +434,10 @@ async def test_get_schema_table_defender():
                 return getschema_result
             return sample_result
 
-        with patch("mcp_xdr.server.run_hunting_query_raw", new=mock_hunting):
+        with patch("mcp_xdr._client.run_hunting_query_raw", new=mock_hunting):
             contents = await get_schema("DeviceEvents", None)
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     assert "Schema for DeviceEvents (Defender)" in text
@@ -460,15 +450,14 @@ async def test_get_schema_table_defender():
 @pytest.mark.asyncio
 async def test_get_schema_table_not_found():
     """Per-table mode: empty getschema + empty take3 → 'not found' message."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = None
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = None
     try:
         empty = {"schema": [], "results": [], "stats": {}}
-        with patch("mcp_xdr.server.run_hunting_query_raw", new=AsyncMock(return_value=empty)):
+        with patch("mcp_xdr._client.run_hunting_query_raw", new=AsyncMock(return_value=empty)):
             contents = await get_schema("NonExistentTable", None)
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     assert "not found" in text.lower() or "no schema" in text.lower()
@@ -477,9 +466,8 @@ async def test_get_schema_table_not_found():
 @pytest.mark.asyncio
 async def test_get_schema_table_defender_api_schema_fallback():
     """Per-table mode: getschema empty but take3 has schema field → fallback to API schema."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = None
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = None
     try:
         empty_getschema = {"schema": [], "results": [], "stats": {}}
         sample_with_schema = {
@@ -493,10 +481,10 @@ async def test_get_schema_table_defender_api_schema_fallback():
                 return empty_getschema
             return sample_with_schema
 
-        with patch("mcp_xdr.server.run_hunting_query_raw", new=mock_hunting):
+        with patch("mcp_xdr._client.run_hunting_query_raw", new=mock_hunting):
             contents = await get_schema("DeviceEvents", "defender")
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     assert "Timestamp" in text
@@ -507,13 +495,12 @@ async def test_get_schema_table_defender_api_schema_fallback():
 @pytest.mark.asyncio
 async def test_get_schema_source_sentinel_not_configured():
     """source='sentinel' with no workspace ID returns an error."""
-    import mcp_xdr.server as srv
-    original = srv._sentinel_workspace_id
-    srv._sentinel_workspace_id = None
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = None
     try:
         contents = await get_schema(None, "sentinel")
     finally:
-        srv._sentinel_workspace_id = original
+        cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     assert "SENTINEL_WORKSPACE_ID" in text
