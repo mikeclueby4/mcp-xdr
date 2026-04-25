@@ -1,21 +1,18 @@
 ---
 name: xdr-report-writing
 description: >
-  When the user ask you to write up a report based on `xdr` investigations (defender/sentinel results), write it in the repo `reports/` folder (which is .gitignored)
+  Use when the user ask you to write up a report based on `xdr` investigations (defender/sentinel results): write it in the repo `reports/` folder (which is .gitignored)
 model: sonnet
 effort: medium
-allowed-tools:
-  - mcp__*__get_schema
-  - mcp__*__run_hunting_query
-  - mcp__*__run_sentinel_query
-  - mcp__*__microsoft_docs_fetch
-  - mcp__*__microsoft_docs_search
-  - WebSearch
-  - WebFetch
-  - mcp__*__web_read
-  - mcp__*__web_grounded_answer
-  - Read({baseDir}/../xdr/references/**)
-  - Write(reports/**)
+allowed-tools: >-
+  mcp__mcp-xdr__*
+  mcp__microsoft-learn__*
+  WebSearch
+  WebFetch
+  mcp__*__web_read
+  mcp__*__web_grounded_answer
+  Read
+  Write(reports/**)
 ---
 
 # Report writing
