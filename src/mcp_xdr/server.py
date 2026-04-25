@@ -13,6 +13,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
+import mcp_xdr._cache as _cache
 import mcp_xdr._config as _config
 from mcp_xdr._tools_hunting import TOOL_DEFINITION as _D_HUNTING, run_hunting_query
 from mcp_xdr._tools_sentinel import TOOL_DEFINITION as _D_SENTINEL, run_sentinel_query
@@ -58,6 +59,7 @@ def main() -> None:
 
 
 async def run_server() -> None:
+    asyncio.ensure_future(_cache.warm_cache())
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 

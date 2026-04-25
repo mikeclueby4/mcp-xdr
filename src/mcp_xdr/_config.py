@@ -7,6 +7,7 @@ test mutations are visible at call time rather than being snapshot at import tim
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 GRAPH_API_BASE = "https://graph.microsoft.com"
@@ -26,5 +27,11 @@ xdr_dir.mkdir(parents=True, exist_ok=True)
 
 _logs_queries_dir = xdr_dir / "logs" / "queries"
 
+_cache_dir = xdr_dir / "cache"
+_cache_dir.mkdir(parents=True, exist_ok=True)
+
+DEFENDER_TABLE_CACHE_TTL = timedelta(hours=24)
+
 # Mutable at runtime: set from env at startup, overridable by tests.
 _sentinel_workspace_id: str | None = os.environ.get("SENTINEL_WORKSPACE_ID") or None
+_tenant_id: str | None = os.environ.get("AZURE_TENANT_ID") or None

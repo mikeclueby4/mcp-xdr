@@ -35,37 +35,17 @@ def _make_sentinel_api_result(num_rows: int) -> dict:
     }
 
 
-def _make_tables_hunting_result(*table_names: str) -> dict:
-    """Defender response for `search * | distinct $table`."""
-    return {
-        "schema": [{"name": "$table", "type": "string"}],
-        "results": [{"$table": t} for t in sorted(table_names)],
-        "stats": {},
-    }
 
-
-def _make_tables_sentinel_result(*table_names: str) -> dict:
-    """Sentinel response for `search * | distinct $table`."""
-    return {
-        "tables": [{
-            "name": "PrimaryResult",
-            "columns": [{"name": "$table", "type": "string"}],
-            "rows": [[t] for t in sorted(table_names)],
-        }],
-    }
-
-
-def _make_sentinel_usage_result(*entries: tuple[str, str, float]) -> dict:
-    """Sentinel Usage query response. entries = (DataType, LastSeen, TotalMB)."""
+def _make_sentinel_usage_result(*entries: tuple[str, str]) -> dict:
+    """Sentinel Usage query response. entries = (DataType, LastSeen)."""
     return {
         "tables": [{
             "name": "PrimaryResult",
             "columns": [
                 {"name": "DataType", "type": "string"},
                 {"name": "LastSeen", "type": "datetime"},
-                {"name": "TotalMB", "type": "real"},
-            ],
-            "rows": [[dt, ls, mb] for dt, ls, mb in entries],
+           ],
+            "rows": [[dt, ls] for dt, ls in entries],
         }],
     }
 
@@ -311,63 +291,46 @@ async def test_get_schema_listing_defender_only():
     original = cfg._sentinel_workspace_id
     cfg._sentinel_workspace_id = None
     try:
-        mock_tables = _make_tables_hunting_result("AlertInfo", "DeviceEvents")
-        with patch("mcp_xdr._client.run_hunting_query_raw", new=AsyncMock(return_value=mock_tables)):
+        with patch("mcp_xdr._cache.get_defender_tables", new=AsyncMock(return_value={"AlertInfo", "DeviceEvents"})):
             contents = await get_schema(None, None)
     finally:
         cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     lines = text.splitlines()
-    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen\tSentinelMB"
+    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen"
     rows = {l.split("\t")[0]: l.split("\t") for l in lines[1:] if l}
     assert rows["AlertInfo"][1] == "yes"
     assert rows["AlertInfo"][2] == "-"
     assert rows["AlertInfo"][3] == ""
-    assert rows["AlertInfo"][4] == ""
     assert rows["DeviceEvents"][1] == "yes"
 
 
 @pytest.mark.asyncio
 async def test_get_schema_listing_both_sources():
-    """Listing mode with Sentinel: merged table list with yes/- and LastSeen/MB from Usage."""
+    """Listing mode with Sentinel: merged table list with yes/- and LastSeen from Usage."""
     original = cfg._sentinel_workspace_id
     cfg._sentinel_workspace_id = "fake-ws"
     try:
-        def_tables = _make_tables_hunting_result("AlertInfo", "DefenderOnly")
-        sen_tables = _make_tables_sentinel_result("AlertInfo", "SentinelOnly")
         sen_usage = _make_sentinel_usage_result(
-            ("AlertInfo", "2026-04-15T21:00:00Z", 40.32),
-            ("SentinelOnly", "2026-04-16T01:00:00Z", 1234.5),
+            ("AlertInfo", "2026-04-15T21:00:00Z"),
+            ("SentinelOnly", "2026-04-16T01:00:00Z"),
         )
 
-        sentinel_call_count = 0
-
-        async def mock_hunting(query: str) -> dict:
-            return def_tables
-
-        async def mock_sentinel(query: str) -> dict:
-            nonlocal sentinel_call_count
-            sentinel_call_count += 1
-            if "Usage" in query:
-                return sen_usage
-            return sen_tables
-
-        with patch("mcp_xdr._client.run_hunting_query_raw", new=mock_hunting):
-            with patch("mcp_xdr._client.run_sentinel_query_raw", new=mock_sentinel):
+        with patch("mcp_xdr._cache.get_defender_tables", new=AsyncMock(return_value={"AlertInfo", "DefenderOnly"})):
+            with patch("mcp_xdr._client.run_sentinel_query_raw", new=AsyncMock(return_value=sen_usage)):
                 contents = await get_schema(None, None)
     finally:
         cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     lines = text.splitlines()
-    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen\tSentinelMB"
+    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen"
     rows = {l.split("\t")[0]: l.split("\t") for l in lines[1:] if l}
 
     assert rows["AlertInfo"][1] == "yes"
     assert rows["AlertInfo"][2] == "yes"
     assert rows["AlertInfo"][3] == "2026-04-15T21:00:00Z"
-    assert rows["AlertInfo"][4] == "40.32"
 
     assert rows["DefenderOnly"][1] == "yes"
     assert rows["DefenderOnly"][2] == "-"
@@ -376,40 +339,27 @@ async def test_get_schema_listing_both_sources():
     assert rows["SentinelOnly"][1] == "-"
     assert rows["SentinelOnly"][2] == "yes"
     assert rows["SentinelOnly"][3] == "2026-04-16T01:00:00Z"
-    assert rows["SentinelOnly"][4] == "1234.50"
 
 
 @pytest.mark.asyncio
 async def test_get_schema_listing_usage_failure_graceful():
-    """If Usage query fails, table list still returns with empty activity columns."""
+    """If Usage query fails, Sentinel tables are absent; Defender tables still show."""
     original = cfg._sentinel_workspace_id
     cfg._sentinel_workspace_id = "fake-ws"
     try:
-        def_tables = _make_tables_hunting_result("AlertInfo")
-        sen_tables = _make_tables_sentinel_result("AlertInfo")
-
-        async def mock_hunting(query: str) -> dict:
-            return def_tables
-
-        async def mock_sentinel(query: str) -> dict:
-            if "Usage" in query:
-                raise Exception("Usage table unavailable")
-            return sen_tables
-
-        with patch("mcp_xdr._client.run_hunting_query_raw", new=mock_hunting):
-            with patch("mcp_xdr._client.run_sentinel_query_raw", new=mock_sentinel):
+        with patch("mcp_xdr._cache.get_defender_tables", new=AsyncMock(return_value={"AlertInfo"})):
+            with patch("mcp_xdr._client.run_sentinel_query_raw", side_effect=Exception("Usage table unavailable")):
                 contents = await get_schema(None, None)
     finally:
         cfg._sentinel_workspace_id = original
 
     text = contents[0].text
     lines = text.splitlines()
-    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen\tSentinelMB"
-    assert lines[1] == "[MCP-XDR:BLANK-COLS] always_empty=SentinelLastSeen, SentinelMB"
-    row = lines[2].split("\t")
-    assert row[0] == "AlertInfo"
-    assert row[3] == ""   # SentinelLastSeen empty due to failure
-    assert row[4] == ""   # SentinelMB empty due to failure
+    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen"
+    rows = {l.split("\t")[0]: l.split("\t") for l in lines[1:] if l and not l.startswith("[")}
+    assert rows["AlertInfo"][1] == "yes"
+    assert rows["AlertInfo"][2] == "-"   # Sentinel failed → not in sen_tables
+    assert rows["AlertInfo"][3] == ""    # no LastSeen
 
 
 # ── get_schema per-table mode tests ──────────────────────────────────────────

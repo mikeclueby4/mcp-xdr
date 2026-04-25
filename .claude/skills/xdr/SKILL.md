@@ -2,7 +2,7 @@
 name: xdr
 description: >
   Expert guidance for writing and executing KQL queries against Microsoft Defender
-  Advanced Hunting via the mcp-xdr MCP server. Use when  the user
+  Advanced Hunting and Sentinel via the mcp-xdr MCP server. Use when the user
   asks about security events, threat hunting, investigating alerts, querying Defender
   tables, or anything involving KQL / Advanced Hunting — even if they don't say
   "xdr" explicitly. Also invoke for questions like "show me devices that…",
@@ -16,15 +16,15 @@ allowed-tools: >-
   mcp__*__web_read
   mcp__*__web_grounded_answer
   WebFetch(domain:raw.githubusercontent.com)
-  Read({baseDir}/references/**)
-  Write({baseDir}/references/**)
+  Read(${CLAUDE_SKILL_DIR}/references/**)
+  Write(${CLAUDE_SKILL_DIR}/references/**)
 ---
 
 # Defender Advanced Hunting & Sentinel — KQL Guidance
 
 You have access to these MCP tools (some conditional on server config):
 - `get_schema` — unified schema discovery:
-  - No args: lists all tables across Defender + Sentinel as TSV (`Table`, `Defender`, `Sentinel`, `SentinelLastSeen`, `SentinelMB`). `SentinelLastSeen`/`SentinelMB` come from the Log Analytics `Usage` table (30-day window, hourly granularity).
+  - No args: lists all tables across Defender + Sentinel as TSV (`Table`, `Defender`, `Sentinel`, `SentinelLastSeen`). `SentinelLastSeen` comes from the Log Analytics `Usage` table (hourly granularity).
   - With `table_name`: returns full column schema (`ColumnName`, `ColumnType`) + up to 3 sample rows. Queries both sources by default; use `source="defender"` or `source="sentinel"` to restrict.
 - `run_hunting_query` — execute KQL via the **Microsoft Graph Security API** (`graph.microsoft.com/v1.0/security/runHuntingQuery`); covers all Defender XDR tables plus Sentinel tables when a workspace is onboarded to the unified Defender portal
 - `run_sentinel_query` — execute KQL via the **Log Analytics API** (`api.loganalytics.azure.com`); only present if `SENTINEL_WORKSPACE_ID` is configured
@@ -103,7 +103,7 @@ Notable tables that may need extra care:
 
 | Table | Notes |
 |-------|-------|
-| `AIAgentsInfo` | Copilot Studio / AI agent inventory. `AgentToolsDetails`, `KnowledgeDetails`, `ConnectedAgentsSchemaNames` are dynamic — sample first. Data is sparse/snapshot-style — `ago(3d)` typically returns 0 rows; use `ago(90d)` or omit the time filter. | TODO: verify good timespan
+| `AIAgentsInfo` | Copilot Studio / AI agent inventory. `AgentToolsDetails`, `KnowledgeDetails`, `ConnectedAgentsSchemaNames` are dynamic — sample first. Rows are written on agent create/modify/delete events only (not a daily heartbeat), so the table is very sparse. **Always deduplicate with `summarize arg_max(Timestamp, *) by AIAgentId`** to get current state. Use `ago(90d)` or omit time filter — narrow windows will miss most agents. See `…/tables/AIAgentsInfo.md`. |
 | `DeviceNetworkEvents` | See `…/tables/DeviceNetworkEvents.md`. Key gotchas: `Protocol` has both `"Tcp"` and `"TcpV4"` — use `startswith "Tcp"` not `== "Tcp"`; `ConnectionSuccess` ≠ allowed (network protection blocks post-handshake); `AdditionalFields` is double-serialized JSON string; inbound rows have no initiating process context. `ReportId` non-uniqueness: see "ReportId uniqueness" section above. |
 | `EntraIdSignInEvents` | See `…/tables/EntraIdSignInEvents.md`. GA replacement for `AADSignInEventsBeta`. Uses `Timestamp` not `TimeGenerated`. Key column naming traps: `Application` (not `AppName`/`AppDisplayName`), `Country` (not `CountryCode`), `AccountUpn` (not `UserPrincipalName`), `EntraIdDeviceId` (not `DeviceId`). Geo is flat (no `parse_json` needed). Has `GatewayJA4`, `IsSignInThroughGlobalSecureAccess`, `UniqueTokenId`. |
 | `SigninLogs` / `AADNonInteractiveUserSignInLogs` | See `…/tables/SigninLogs.md`. Key gotcha: `LocationDetails` and `DeviceDetail` are `dynamic` in `SigninLogs` but `string` in `AADNonInteractiveUserSignInLogs` — after `union` use `tostring(parse_json(tostring(col)).field)` to avoid `SEM0100`. |

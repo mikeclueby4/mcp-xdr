@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 from mcp.types import TextContent, Tool
 
+import mcp_xdr._cache as _cache
 import mcp_xdr._client as _client
 from mcp_xdr._output import _append_query_log, _run_query, _sanitise
 import mcp_xdr._config as _config
@@ -16,7 +17,7 @@ TOOL_DEFINITION = Tool(
         "Discover available tables and columns before writing KQL queries."
         "\n\n"
         "No arguments: lists all tables across Defender and (when configured) Sentinel as TSV. "
-        "SentinelLastSeen (hourly granularity) and SentinelMB come from the Log Analytics `Usage` table."
+        "SentinelLastSeen (hourly granularity) comes from the Log Analytics `Usage` table."
         "\n\n"
         "With table_name: returns the full column schema (ColumnName, ColumnType) plus "
         "up to 3 sample rows from that table."
@@ -94,15 +95,10 @@ async def _get_schema_listing(use_defender: bool, use_sentinel: bool) -> list[Te
     """List all tables across sources as a TSV with activity columns."""
     coros: list[tuple[str, Any]] = []
     if use_defender:
-        coros.append(("def_tables", _client.run_hunting_query_raw(
-            "search * | distinct $table | sort by $table asc"
-        )))
+        coros.append(("def_tables", _cache.get_defender_tables()))
     if use_sentinel:
-        coros.append(("sen_tables", _client.run_sentinel_query_raw(
-            "search * | distinct $table | sort by $table asc"
-        )))
         coros.append(("sen_usage", _client.run_sentinel_query_raw(
-            "Usage | summarize LastSeen=max(TimeGenerated), TotalMB=sum(Quantity) by DataType"
+            "Usage | where TimeGenerated > ago(30d) | summarize LastSeen=max(TimeGenerated) by DataType"
         )))
 
     if not coros:
@@ -116,22 +112,10 @@ async def _get_schema_listing(use_defender: bool, use_sentinel: bool) -> list[Te
     if "def_tables" in results_by_label:
         r = results_by_label["def_tables"]
         if not isinstance(r, Exception):
-            for row in r.get("results", []):
-                t = row.get("$table", "")
-                if t:
-                    def_tables.add(t)
+            def_tables = r  # already a set[str] from _cache.get_defender_tables()
 
     sen_tables: set[str] = set()
-    if "sen_tables" in results_by_label:
-        r = results_by_label["sen_tables"]
-        if not isinstance(r, Exception):
-            for row in r["tables"][0]["rows"]:
-                t = str(row[0]) if row else ""
-                if t:
-                    sen_tables.add(t)
-
     sen_lastseen: dict[str, str] = {}
-    sen_mb: dict[str, str] = {}
     if "sen_usage" in results_by_label:
         r = results_by_label["sen_usage"]
         if not isinstance(r, Exception):
@@ -139,27 +123,24 @@ async def _get_schema_listing(use_defender: bool, use_sentinel: bool) -> list[Te
             col_idx = {c["name"]: i for i, c in enumerate(table["columns"])}
             dt_i = col_idx.get("DataType", -1)
             ls_i = col_idx.get("LastSeen", -1)
-            mb_i = col_idx.get("TotalMB", -1)
             for row in table["rows"]:
                 dt = str(row[dt_i]) if dt_i >= 0 and row[dt_i] else ""
                 ls = str(row[ls_i]) if ls_i >= 0 and row[ls_i] else ""
-                mb = f"{row[mb_i]:.2f}" if mb_i >= 0 and row[mb_i] is not None else ""
                 if dt:
+                    sen_tables.add(dt)
                     sen_lastseen[dt] = ls
-                    sen_mb[dt] = mb
 
     all_tables = sorted(def_tables | sen_tables)
     if not all_tables:
         return [TextContent(type="text", text="No tables found.")]
 
-    col_names = ["Table", "Defender", "Sentinel", "SentinelLastSeen", "SentinelMB"]
+    col_names = ["Table", "Defender", "Sentinel", "SentinelLastSeen"]
     data_rows = []
     for t in all_tables:
         in_def = "yes" if t in def_tables else "-"
         in_sen = "yes" if t in sen_tables else "-"
         ls = sen_lastseen.get(t, "")
-        mb = sen_mb.get(t, "")
-        data_rows.append("\t".join([_sanitise(t), in_def, in_sen, ls, mb]))
+        data_rows.append("\t".join([_sanitise(t), in_def, in_sen, ls]))
 
     return await _run_query(col_names, data_rows, "mcp-xdr-schema-")
 
@@ -193,7 +174,10 @@ async def _get_schema_for_table(
         sample_result = results_by_label[sample_key]
 
         if isinstance(schema_result, Exception):
-            output_parts.append(f"Schema for {table_name} ({source_label}): ERROR — {schema_result}")
+            if isinstance(schema_result, httpx.HTTPStatusError) and schema_result.response.status_code == 400:
+                output_parts.append(f"Schema for {table_name} ({source_label}): table not found in this source.")
+            else:
+                output_parts.append(f"Schema for {table_name} ({source_label}): ERROR — {schema_result}")
             continue
 
         if is_sentinel:
