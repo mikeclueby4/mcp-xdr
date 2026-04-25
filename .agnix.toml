@@ -1,6 +1,12 @@
-
-target = "claude-code"
+tools = ["claude-code"]     # Valid: claude-code, cursor, codex, copilot, github-copilot, generic
 strict = false
-disabled_rules = [
-    "VER-001"
-]
+
+[rules]
+# AS-013 = file reference foo is deeper than one level
+disabled_rules = ["AS-013"]
+
+[spec_revisions]
+mcp_protocol = "2025-11-25"
+
+[tool_versions]
+claude_code = "2.1.110"
