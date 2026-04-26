@@ -1,6 +1,7 @@
 """MCP tool: get_schema — unified schema discovery for Defender and Sentinel."""
 
 import asyncio
+import json
 from typing import Any
 
 import httpx
@@ -8,8 +9,61 @@ from mcp.types import TextContent, Tool
 
 import mcp_xdr._cache as _cache
 import mcp_xdr._client as _client
-from mcp_xdr._output import _append_query_log, _run_query, _sanitise
+from mcp_xdr._output import _append_query_log, _cell_str, _run_query, _sanitise
 import mcp_xdr._config as _config
+
+
+def _type_stub(obj: Any) -> Any:
+    """Return a type-accurate placeholder for obj: {…} for dict, […] for list, scalar as-is."""
+    if isinstance(obj, dict):
+        return "{…}"
+    if isinstance(obj, list):
+        return "[…]"
+    return obj
+
+
+def _depth_reduce(obj: Any, depth: int, str_limit: int = 0) -> Any:
+    """Recursively reduce obj to the given depth, preserving type hints at leaves.
+
+    If str_limit > 0, string values longer than str_limit are truncated to
+    str_limit chars + "…". Applied at every level, enabling compression of
+    lists-of-long-strings that survive structural depth reduction.
+    """
+    if str_limit and isinstance(obj, str) and len(obj) > str_limit:
+        return obj[:str_limit] + "…"
+    if depth == 0:
+        return _type_stub(obj)
+    if isinstance(obj, dict):
+        if depth == 1:
+            return {k: _type_stub(v) for k, v in obj.items()}
+        return {k: _depth_reduce(v, depth - 1, str_limit) for k, v in obj.items()}
+    if isinstance(obj, list):
+        if not obj:
+            return []
+        first = _depth_reduce(obj[0], depth - 1, str_limit)
+        if len(obj) == 1:
+            return [first]
+        return [first, f"…+{len(obj) - 1} more"]
+    return obj
+
+
+def _truncate_cell(value: str, limit: int = 1024) -> str:
+    if len(value) <= limit:
+        return value
+    try:
+        parsed = json.loads(value)
+        for depth in (3, 2, 1):
+            reduced = json.dumps(_depth_reduce(parsed, depth), separators=(",", ":"), ensure_ascii=False)
+            if len(reduced) <= limit:
+                return reduced + "…"
+        # Structural depth alone didn't fit — also truncate long string leaves
+        reduced = json.dumps(_depth_reduce(parsed, 1, str_limit=200), separators=(",", ":"), ensure_ascii=False)
+        if len(reduced) <= limit:
+            return reduced + "…"
+        return reduced[:limit] + "…"
+    except (json.JSONDecodeError, ValueError):
+        return value[:200] + "…"
+
 
 TOOL_DEFINITION = Tool(
     name="get_schema",
@@ -210,11 +264,15 @@ async def _get_schema_for_table(
         else:
             if is_sentinel:
                 s_col_names, s_data_rows = _client._sentinel_result_to_tsv(sample_result)
+                s_data_rows = [
+                    "\t".join(_truncate_cell(cell) for cell in row.split("\t"))
+                    for row in s_data_rows
+                ]
             else:
                 s_schema = sample_result.get("schema", [])
                 s_col_names = [col.get("name", "") for col in s_schema]
                 s_data_rows = [
-                    "\t".join(_sanitise(str(row.get(n, ""))) for n in s_col_names)
+                    "\t".join(_sanitise(_truncate_cell(_cell_str(row.get(n)))) for n in s_col_names)
                     for row in sample_result.get("results", [])
                 ]
             if s_data_rows:

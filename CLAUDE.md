@@ -48,6 +48,8 @@ Adding a new Graph API tool: create `_tools_foo.py` (imports `_client`, `_output
 python -m pytest tests/ -v   # all tests mocked, no live API calls
 ```
 
+**To test code changes, the MCP server must be bounced**: ask the user to "/mcp", select mcp-xdr, and click Reconnect.
+
 **Mock patch targets:** tool modules call `_client.run_hunting_query_raw(...)` via module reference (not `from`-imported). Patch at `"mcp_xdr._client.run_hunting_query_raw"` and `"mcp_xdr._client.run_sentinel_query_raw"` — these intercept all callers.
 
 **`_sentinel_workspace_id` in tests:** `import mcp_xdr._config as cfg; cfg._sentinel_workspace_id = "fake-ws"` (restore in `finally`). Never `from _config import` — that snapshots the value at import time.

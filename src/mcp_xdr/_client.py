@@ -11,7 +11,7 @@ import httpx
 
 import mcp_xdr._config as _config
 import mcp_xdr._auth as _auth
-from mcp_xdr._output import _normalize_query, _sanitise
+from mcp_xdr._output import _cell_str, _normalize_query, _sanitise
 
 
 async def run_hunting_query_raw(query: str) -> dict[str, Any]:
@@ -69,7 +69,7 @@ def _sentinel_result_to_tsv(result: dict[str, Any]) -> tuple[list[str], list[str
     table = result["tables"][0]
     col_names = [c["name"] for c in table["columns"]]
     data_rows = [
-        "\t".join(_sanitise(str(v) if v is not None else "") for v in row)
+        "\t".join(_sanitise(_cell_str(v)) for v in row)
         for row in table["rows"]
     ]
     return col_names, data_rows

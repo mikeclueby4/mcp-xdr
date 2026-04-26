@@ -4,14 +4,28 @@ Pure data-transformation utilities — no knowledge of which API is being called
 """
 
 import datetime
+import json
 import os
 import re
 import tempfile
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import mcp_xdr._config as _config
 
 from mcp.types import TextContent
+
+
+def _cell_str(v: Any) -> str:
+    """Serialize a cell value to string for TSV output.
+
+    dict/list values (KQL dynamic columns) are JSON-serialized so the output
+    is valid JSON rather than Python repr (single-quoted, True/False, None).
+    """
+    if v is None:
+        return ""
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)
+    return str(v)
 
 
 def _sanitise(value: str) -> str:

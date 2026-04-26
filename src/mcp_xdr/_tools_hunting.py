@@ -6,7 +6,7 @@ import httpx
 from mcp.types import TextContent, Tool
 
 import mcp_xdr._client as _client
-from mcp_xdr._output import _append_query_log, _run_query, _sanitise
+from mcp_xdr._output import _append_query_log, _cell_str, _run_query, _sanitise
 import mcp_xdr._config as _config
 
 _RESULT_DESCRIPTION = (
@@ -57,7 +57,7 @@ async def run_hunting_query(query: str) -> list[TextContent]:
         results = result.get("results", [])
         col_names = [col.get("name", "") for col in schema]
         data_rows = [
-            "\t".join(_sanitise(str(row.get(n, ""))) for n in col_names)
+            "\t".join(_sanitise(_cell_str(row.get(n))) for n in col_names)
             for row in results
         ]
         out = await _run_query(col_names, data_rows, "mcp-xdr-")

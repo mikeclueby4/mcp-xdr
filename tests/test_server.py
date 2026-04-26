@@ -465,3 +465,46 @@ async def test_get_schema_invalid_source():
     assert "Invalid source" in text
     assert "defender" in text
     assert "sentinel" in text
+
+
+def test_cell_str_dynamic_column():
+    """_cell_str serializes dict/list as JSON, not Python repr."""
+    from mcp_xdr._output import _cell_str
+    assert _cell_str(None) == ""
+    assert _cell_str("plain") == "plain"
+    assert _cell_str(42) == "42"
+    assert _cell_str({"a": 1}) == '{"a": 1}'
+    assert _cell_str([{"$kind": "foo"}]) == '[{"$kind": "foo"}]'
+    # Ensure no Python repr artifacts
+    assert "'" not in _cell_str({"key": "value"})
+    assert "True" not in _cell_str({"flag": True})
+    assert '"flag": true' in _cell_str({"flag": True})
+
+
+def test_truncate_cell_type_hints():
+    """_truncate_cell depth-reduces JSON with type-accurate placeholders."""
+    from mcp_xdr._tools_schema import _truncate_cell
+    import json
+
+    # Small value: pass through unchanged
+    assert _truncate_cell("hello") == "hello"
+
+    # Dict: depth-1 shows keys with type-accurate stubs
+    # full=48 chars, depth-1=41 chars — limit=45 triggers reduction without hard-cutting
+    big_dict = json.dumps({"a": {"nested": 1}, "b": [1, 2], "c": "scalar", "d": 42})
+    result = json.loads(_truncate_cell(big_dict, limit=45).rstrip("…"))
+    assert result["a"] == "{…}"
+    assert result["b"] == "[…]"
+    assert result["c"] == "scalar"
+    assert result["d"] == 42
+
+    # List: shows first element + count hint, not ["…"]
+    # full=25 chars, depth-1=20 chars — limit=22 triggers reduction
+    big_list = json.dumps(["item1", "item2", "item3"])
+    result = _truncate_cell(big_list, limit=22)
+    assert "…+2 more" in result
+
+    # Non-JSON: plain truncation
+    result = _truncate_cell("x" * 2000)
+    assert len(result) <= 204  # 200 + ellipsis
+    assert result.endswith("…")
