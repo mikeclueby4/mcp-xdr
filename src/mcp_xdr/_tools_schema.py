@@ -202,7 +202,7 @@ async def _get_schema_listing(use_defender: bool, use_sentinel: bool) -> list[Te
 async def _get_schema_for_table(
     table_name: str, use_defender: bool, use_sentinel: bool
 ) -> list[TextContent]:
-    """Return schema + sample rows for a specific table from the requested source(s)."""
+    """Return merged schema + sample rows for a specific table from the requested source(s)."""
     coros: list[tuple[str, Any]] = []
     if use_defender:
         coros.append(("def_schema", _client.run_hunting_query_raw(f"{table_name} | getschema")))
@@ -215,75 +215,96 @@ async def _get_schema_for_table(
     raw_results = await asyncio.gather(*[coro for _, coro in coros], return_exceptions=True)
     results_by_label: dict[str, Any] = dict(zip(labels, raw_results))
 
-    output_parts: list[str] = []
+    # ── Collect per-source schema columns ────────────────────────────────────
+    def_cols: list[tuple[str, str]] = []
+    sen_cols: list[tuple[str, str]] = []
+    fallback_notes: list[str] = []
+    error_parts: list[str] = []
 
-    for source_label, schema_key, sample_key, is_sentinel in [
-        ("Defender", "def_schema", "def_sample", False),
-        ("Sentinel", "sen_schema", "sen_sample", True),
-    ]:
-        if schema_key not in results_by_label:
-            continue
-
-        schema_result = results_by_label[schema_key]
-        sample_result = results_by_label[sample_key]
-
-        if isinstance(schema_result, Exception):
-            if isinstance(schema_result, httpx.HTTPStatusError) and schema_result.response.status_code == 400:
-                output_parts.append(f"Schema for {table_name} ({source_label}): table not found in this source.")
+    if "def_schema" in results_by_label:
+        r = results_by_label["def_schema"]
+        s = results_by_label.get("def_sample")
+        if isinstance(r, Exception):
+            if isinstance(r, httpx.HTTPStatusError) and r.response.status_code == 400:
+                error_parts.append("Defender: table not found in this source.")
             else:
-                output_parts.append(f"Schema for {table_name} ({source_label}): ERROR — {schema_result}")
-            continue
-
-        if is_sentinel:
-            schema_cols = _parse_getschema_sentinel(schema_result)
+                error_parts.append(f"Defender: ERROR — {r}")
         else:
-            schema_cols = _parse_getschema_hunting(schema_result)
+            def_cols = _parse_getschema_hunting(r)
+            if not def_cols and s is not None and not isinstance(s, Exception):
+                api_schema = s.get("schema", [])
+                if api_schema:
+                    def_cols = [(c.get("name", ""), c.get("type", "")) for c in api_schema if c.get("name")]
+                    fallback_notes.append("Defender schema from API metadata — table has no rows")
 
-        # Fallback: if getschema returned nothing (table has no rows), use the API schema field
-        # from the take-3 response, which always carries column metadata.
-        fallback_note = ""
-        if not schema_cols and not isinstance(sample_result, Exception):
-            api_schema = sample_result.get("schema", []) if not is_sentinel else []
-            if api_schema:
-                schema_cols = [(c.get("name", ""), c.get("type", "")) for c in api_schema if c.get("name")]
-                fallback_note = " (schema from API metadata — table has no rows)"
+    if "sen_schema" in results_by_label:
+        r = results_by_label["sen_schema"]
+        if isinstance(r, Exception):
+            if isinstance(r, httpx.HTTPStatusError) and r.response.status_code == 400:
+                error_parts.append("Sentinel: table not found in this source.")
+            else:
+                error_parts.append(f"Sentinel: ERROR — {r}")
+        else:
+            sen_cols = _parse_getschema_sentinel(r)
 
-        if not schema_cols:
-            output_parts.append(f"Schema for {table_name} ({source_label}): table not found or no schema available.")
+    # ── Merge into unified column dict (full outer join) ─────────────────────
+    # ColumnName -> (DefenderType, SentinelType)
+    merged: dict[str, tuple[str, str]] = {}
+    for col_name, col_type in def_cols:
+        merged[col_name] = (col_type, "N/A")
+    for col_name, col_type in sen_cols:
+        if col_name in merged:
+            merged[col_name] = (merged[col_name][0], col_type)
+        else:
+            merged[col_name] = ("N/A", col_type)
+
+    if not merged:
+        if error_parts:
+            return [TextContent(type="text", text="\n".join(error_parts))]
+        return [TextContent(type="text", text=f"Table '{table_name}' not found in any configured source.")]
+
+    # ── Render merged schema table ────────────────────────────────────────────
+    note = f" ({'; '.join(fallback_notes)})" if fallback_notes else ""
+    lines = [f"Schema for {table_name}:{note}", ""]
+    lines.append(f"{'ColumnName':<45} {'DefenderType':<15} SentinelType")
+    lines.append("-" * 75)
+    for col_name, (def_type, sen_type) in merged.items():
+        lines.append(f"{col_name:<45} {def_type:<15} {sen_type}")
+    output_parts: list[str] = ["\n".join(lines)]
+
+    if error_parts:
+        output_parts.append("\n".join(error_parts))
+
+    # ── Sample rows (per-source, unchanged) ──────────────────────────────────
+    for source_label, sample_key, is_sentinel in [
+        ("Defender", "def_sample", False),
+        ("Sentinel", "sen_sample", True),
+    ]:
+        if sample_key not in results_by_label:
             continue
-
-        lines = [f"Schema for {table_name} ({source_label}):{fallback_note}", ""]
-        lines.append(f"{'ColumnName':<45} ColumnType")
-        lines.append("-" * 65)
-        for col_name, col_type in schema_cols:
-            lines.append(f"{col_name:<45} {col_type}")
-        output_parts.append("\n".join(lines))
-
+        sample_result = results_by_label[sample_key]
         if isinstance(sample_result, Exception):
             output_parts.append(f"Sample rows from {table_name} ({source_label}): ERROR — {sample_result}")
+            continue
+        if is_sentinel:
+            s_col_names, s_data_rows = _client._sentinel_result_to_tsv(sample_result)
+            s_data_rows = [
+                "\t".join(_truncate_cell(cell) for cell in row.split("\t"))
+                for row in s_data_rows
+            ]
         else:
-            if is_sentinel:
-                s_col_names, s_data_rows = _client._sentinel_result_to_tsv(sample_result)
-                s_data_rows = [
-                    "\t".join(_truncate_cell(cell) for cell in row.split("\t"))
-                    for row in s_data_rows
-                ]
-            else:
-                s_schema = sample_result.get("schema", [])
-                s_col_names = [col.get("name", "") for col in s_schema]
-                s_data_rows = [
-                    "\t".join(_sanitise(_truncate_cell(_cell_str(row.get(n)))) for n in s_col_names)
-                    for row in sample_result.get("results", [])
-                ]
-            if s_data_rows:
-                header = "\t".join(_sanitise(n) for n in s_col_names)
-                output_parts.append(
-                    "\n".join([f"Sample rows from {table_name} ({source_label}):", "", header] + s_data_rows)
-                )
-            else:
-                output_parts.append(f"Sample rows from {table_name} ({source_label}): (no rows — table may be empty)")
-
-    if not output_parts:
-        return [TextContent(type="text", text=f"Table '{table_name}' not found in any configured source.")]
+            s_schema = sample_result.get("schema", [])
+            s_col_names = [col.get("name", "") for col in s_schema]
+            s_data_rows = [
+                "\t".join(_sanitise(_truncate_cell(_cell_str(row.get(n)))) for n in s_col_names)
+                for row in sample_result.get("results", [])
+            ]
+        if s_data_rows:
+            header = "\t".join(_sanitise(n) for n in s_col_names)
+            output_parts.append(
+                "\n".join([f"Sample rows from {table_name} ({source_label}):", "", header] + s_data_rows)
+            )
+        else:
+            output_parts.append(f"Sample rows from {table_name} ({source_label}): (no rows — table may be empty)")
 
     return [TextContent(type="text", text="\n\n---\n\n".join(output_parts))]

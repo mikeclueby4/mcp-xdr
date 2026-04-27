@@ -390,7 +390,9 @@ async def test_get_schema_table_defender():
         cfg._sentinel_workspace_id = original
 
     text = contents[0].text
-    assert "Schema for DeviceEvents (Defender)" in text
+    assert "Schema for DeviceEvents" in text
+    assert "DefenderType" in text
+    assert "SentinelType" in text
     assert "Timestamp" in text
     assert "datetime" in text
     assert "Sample rows from DeviceEvents (Defender)" in text
@@ -440,6 +442,48 @@ async def test_get_schema_table_defender_api_schema_fallback():
     assert "Timestamp" in text
     assert "datetime" in text
     assert "API metadata" in text  # fallback note
+
+
+@pytest.mark.asyncio
+async def test_get_schema_table_both_sources_merged():
+    """Per-table mode with both sources: merged single table, N/A for source-exclusive columns."""
+    original = cfg._sentinel_workspace_id
+    cfg._sentinel_workspace_id = "fake-ws"
+    try:
+        def_schema = _make_getschema_hunting_result(
+            ("Timestamp", "datetime"), ("DeviceId", "string"), ("DefenderOnly", "int")
+        )
+        sen_schema = _make_getschema_sentinel_result(
+            ("Timestamp", "datetime"), ("DeviceId", "string"), ("SentinelOnly", "dynamic")
+        )
+        empty_sample = {"schema": [], "results": [], "stats": {}}
+        empty_sen_sample = {"tables": [{"name": "PrimaryResult", "columns": [], "rows": []}]}
+
+        async def mock_hunting(query: str) -> dict:
+            return def_schema if "getschema" in query else empty_sample
+
+        async def mock_sentinel(query: str) -> dict:
+            return sen_schema if "getschema" in query else empty_sen_sample
+
+        with patch("mcp_xdr._client.run_hunting_query_raw", new=mock_hunting):
+            with patch("mcp_xdr._client.run_sentinel_query_raw", new=mock_sentinel):
+                contents = await get_schema("DeviceEvents", None)
+    finally:
+        cfg._sentinel_workspace_id = original
+
+    text = contents[0].text
+    assert "DefenderType" in text
+    assert "SentinelType" in text
+    # Columns present in both show actual types
+    assert "datetime" in text
+    # Defender-only column: SentinelType should be N/A
+    lines = {l.split()[0]: l for l in text.splitlines() if l.startswith("DefenderOnly")}
+    assert lines, "DefenderOnly column missing from schema table"
+    assert "N/A" in lines["DefenderOnly"]
+    # Sentinel-only column: DefenderType should be N/A
+    lines2 = {l.split()[0]: l for l in text.splitlines() if l.startswith("SentinelOnly")}
+    assert lines2, "SentinelOnly column missing from schema table"
+    assert "N/A" in lines2["SentinelOnly"]
 
 
 @pytest.mark.asyncio
