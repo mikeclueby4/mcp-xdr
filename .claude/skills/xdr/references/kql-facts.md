@@ -137,9 +137,10 @@ EmailEvents
 
 ### General KQL hygiene
 
-**Time filter** — always include one; default to last 7 days.
+**Time filter** — always include one; default to last 7 days. Sentinel/Log Analytics tables use `TimeGenerated`; Defender XDR tables use `Timestamp`. `get_schema()` shows which source a table comes from — if it has `Sentinel=yes`, use `TimeGenerated`.
 ```kql
-| where Timestamp > ago(7d)
+| where Timestamp > ago(7d)      -- Defender XDR tables
+| where TimeGenerated > ago(7d)  -- Sentinel / Log Analytics tables
 ```
 
 **Limit columns** — use `project` to return only what's needed; Defender tables are wide and raw rows waste context:
@@ -147,17 +148,10 @@ EmailEvents
 | project Timestamp, DeviceName, AccountUpn, ActionType, AdditionalFields
 ```
 
-**Summarize over raw rows** — for large tables (`DeviceEvents`, `DeviceNetworkEvents`, `EmailEvents`), prefer aggregation unless the user needs individual events:
+**Summarize over raw rows** — for large tables (`DeviceEvents`, `DeviceNetworkEvents`, `EmailEvents`), prefer aggregation unless we actually need individual events:
 ```kql
 | summarize Count=count() by DeviceName, ActionType
 | sort by Count desc
-```
-
-**Large result sets** — if a query returns more rows than fit comfortably in context, spawn a subagent to ingest and summarize the output. Always use `model="haiku"` for these — the task is pure reading/summarization, not reasoning, and Haiku is faster and cheaper for it. Choose `effort="low|medium"` appropriate for the task, don't let it inherit yours.
-```
-Agent(model="haiku", prompt="Read the TSV at <path>. Summarize: distinct values in
-col A (entity names), top 10 by count in col B, flag any values that look unusual
-or non-standard. Output a markdown table.")
 ```
 
 **Dynamic column access** — use `tostring()`, `toint()`, `parse_json()`, and `bag_keys()` to work with dynamic columns safely:
@@ -172,13 +166,13 @@ or non-standard. Output a markdown table.")
 
 **1. Summarize on-server first**
 
-Covered in [General KQL hygiene](#general-kql-hygiene) above. Never pull raw rows for exploratory work — always end with e.g. `summarize … by <key> | sort by Count desc`. If you need individual events, add a `where` filter to narrow first, *then* remove the summarize.
+Never pull raw rows for exploratory work — always end with e.g. `summarize … by <key> | sort by Count desc`. If you need individual events, add a `where` filter to narrow first, *then* remove the summarize.
 
-**2. Use `| sample N` only for big-picture exploration, not inventory**
+**2. Use `| sample N` for big-picture exploration ... but not inventory**
 
-`| sample N` draws a quasi-random subset — useful for checking whether a pattern is worth pursuing, and avoids temporal/sorted clustering bias with other row limits.
+`| sample N` draws a quasi-random subset — useful for checking whether a pattern is worth pursuing, and avoids temporal/sorting clustering bias that "| take N" gives.
 
-**3. Overflow files — use Bash tooling, not context**
+**3. Overflow files — default to Bash tooling, not context**
 
 When a query hits the `[MCP-XDR:OVERFLOW]` sentinel, the full result is in a tmpfile at the path shown. Do **not** default to reading the whole file into main agent context window. Instead, grep/extract what you need:
 
@@ -193,13 +187,24 @@ rg -i "keyword" <path>.tsv | head -20
 awk -F'\t' 'NR==1 || $1 ~ /pattern/ {print $1, $3}' <path>.tsv
 ```
 
+Remember that Bash is Bash, even on Windows. If you are given a Windows path with backslashes, convert to e.g. "/C/Path/to/file.ext" with forward slashes, or Bash errors.
+
 For more complex analysis, write a reusable named Python script in `.claude/skills/xdr/references/scripts/`.
 
-**4. Delegate large summarization to a Haiku subagent**
+**4. Delegate exploratory tool calling to a Haiku subagent**
 
-Covered in [General KQL hygiene](#general-kql-hygiene) above.
+When you can reasonably infer that something may take many tool calls, delegate to a general-purpose `model="haiku"` with `effort=medium` to investigate the chain / relationship you're looking for. The agent starts with tiny context, making the turns cheap. "See this Defender XDR query result file <resultfile|tmpfile>. I need to understand <...> so that I can <...>" is a good starting pattern.
 
-**5. Prefer one wide summarize over multiple narrow queries**
+**5. Delegate large result set non-deterministic summarization to a Haiku subagent**
+
+For large result sets where deterministic Bash won't do the job, spawn a subagent to ingest and summarize the output. Always use `model="haiku"` for these — the task is pure reading/summarization, not reasoning, and Haiku is faster and cheaper for it. Choose `effort="low|medium"` appropriate for the task, don't let it inherit yours.
+```
+Agent(model="haiku", prompt="Read the TSV at <path>. Summarize: distinct values in
+col A (entity names), top 10 by count in col B, flag any values that look unusual
+or non-standard.")
+```
+
+**6. Prefer one wide summarize over multiple narrow queries**
 
 Run one broad query that captures all variants ranked by volume, then drill into specific findings with `where` filters. Resist the urge to issue a separate query per hypothesis — each query costs context and round-trip time.
 

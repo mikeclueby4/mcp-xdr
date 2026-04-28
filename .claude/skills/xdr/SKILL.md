@@ -53,23 +53,19 @@ When unsure which tool: call `get_schema()` with no args first — the `Defender
 **For any table you haven't used in this session**, do all of these before writing the real query:
 
 1. `get_schema(table_name="<TableName>")` — get column names, types, and up to 3 sample rows from all available sources in one call
-2. **Read `${CLAUDE_SKILL_DIR}/references/tables/<TableName>.md`** if it exists — accumulated learnings about column types, gotchas, and high-value columns that are not obvious from the schema alone. Do steps 1–2 in parallel.
+2. **Read `${CLAUDE_SKILL_DIR}/references/tables/<TableName>.md`**. If it does NOT exist, ask the `xdr-refine` agent to research and write it, first. 
 
 This is especially important for tables with `dynamic` columns (bags of key/value pairs whose keys aren't visible in the schema). Skipping this step leads to queries that look valid but return nothing.
 
-**For tables with complex dynamic columns** — particularly `ExposureGraphNodes`, `ExposureGraphEdges`, `AIAgentsInfo`, `CloudAppEvents` — also fetch the live Microsoft reference for that table. The docs help with column types and general structure; for dynamic columns like `NodeProperties` whose keys aren't enumerated in the docs, the `take 3` live sample (step 2 above) remains essential.
-
 ## Proactively trigger self-improvement of reference docs during work!
 
-**When you discover something surprising** — an unexpected column type, a column whose values are much larger than expected, a field name that differs from what the schema implies, behaviour that contradicts what you'd assume — spawn the `xdr-refine` subagent while you work. It will update the reference docs for you; just compose a short brief of what you have discovered, e.g.:
+**When you discover something surprising** — an unexpected column type, a column whose values are much larger than expected, a field name that differs from what the schema implies, behaviour that contradicts what you'd assume — spawn the `xdr-refine` subagent. It will update the reference docs for you; just compose a short brief of what you have discovered, e.g.:
 
 ```
 Agent(subagent_type="xdr-refine", prompt="Table: AuditLogs\nFinding: NetworkAccessTraffic section is misplaced — it belongs in its own table file, not AuditLogs.md.\nEvidence: <query + excerpt>")
 ```
 
-The subagent fetches live docs, checks the live schema, reconciles with the existing reference file, and rewrites it in isolation. 
-
-You can either continue your work, or wait for the subagent to provide updated guidance, as appropriate.
+The subagent fetches live docs, checks the live schema, reconciles with the existing reference file, and rewrites it in isolation.
 
 ---
 
@@ -147,31 +143,6 @@ union SigninLogs, AADNonInteractiveUserSignInLogs
 | where TimeGenerated > ago(1d)
 | project TimeGenerated, UserPrincipalName, AppDisplayName, ResultType, IPAddress, Location
 ```
-
-## Sentinel Log Analytics tables (`run_sentinel_query`)
-
-When `SENTINEL_WORKSPACE_ID` is set, the following tables are available via `run_sentinel_query`. Use `run_sentinel_query("<Table> | getschema")` to see columns. Unlike Defender tables, these use `TimeGenerated` not `Timestamp` as the time column.
-
-```
-AADManagedIdentitySignInLogs   AADNonInteractiveUserSignInLogs  AADProvisioningLogs
-AADRiskyUsers                  AADServicePrincipalSignInLogs    AADUserRiskEvents
-AlertEvidence                  AlertInfo                        Anomalies
-AuditLogs                      AzureActivity                    BehaviorAnalytics
-CloudAppEvents                 DeviceEvents                     DeviceFileCertificateInfo
-DeviceFileEvents               DeviceImageLoadEvents            DeviceInfo
-DeviceLogonEvents              DeviceNetworkEvents              DeviceNetworkInfo
-DeviceProcessEvents            DeviceRegistryEvents             EmailAttachmentInfo
-EmailEvents                    EmailPostDeliveryEvents          EmailUrlInfo
-Heartbeat                      IdentityDirectoryEvents          IdentityInfo
-IdentityLogonEvents            IdentityQueryEvents              MicrosoftPurviewInformationProtection
-OfficeActivity                 Operation                        SecurityAlert
-SecurityEvent                  SecurityIncident                 SentinelAudit
-SentinelHealth                 SigninLogs                       ThreatIntelIndicators
-UrlClickEvents                 Usage                            UserPeerAnalytics
-```
-
-Note: many of these are duplicates of Defender XDR tables (Defender ingests into Sentinel). For XDR tables, `run_hunting_query` has richer query support and fresher data; `run_sentinel_query` gives access to longer retention and older data.
-
 
 ## Local tenant facts (the only place where local tenant information may be written)
 
