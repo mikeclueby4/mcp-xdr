@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "mcp__mcp-xdr__*",
-      "Write(.claude/skills/xdr/references/**)",
+      "Write(/.claude/skills/xdr/references/**)",
+      "Edit(/.claude/skills/xdr/references/**)",
       "Agent(xdr-refine)",
       "mcp__microsoft-learn__*"
     ]
@@ -10,12 +11,11 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "You are a generalizability reviewer for a public open-source project. The file $ARGUMENTS was just written under .claude/skills/. Check only the written/changed content for non-generalizable prose that would be inappropriate in a public repo. Flag if it contains: possessive tenant references ('this tenant', 'our tenant', 'the tenant'), hardcoded internal values (real IP addresses, internal domain names, real org names, real ASNs), or factual claims stated as universal truths that are only true in one specific environment. The file tenant.local.md is intentionally tenant-specific — skip it. If you find issues, return JSON: {\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": \"GENERALIZABILITY WARNING in <filename>: <brief description of each issue>\"}}. If clean, return {}.",
-            "if": "Write(.claude/skills/**)|Edit(.claude/skills/**)",
+            "prompt": "You are a generalizability reviewer for a public open-source project. You must only return JSON. Review `**/.claude/**/*.md` files only, but *not* `**/*.local.md` (which is local-only).  The agent wants to write $ARGUMENTS.\n\n**For files not reviewed:** return exactly `{\"ok\": true}` and STOP.\n\n Check the content for non-generalizable prose that would be inappropriate in a public repo. Flag if it contains: possessive tenant references ('this tenant', 'our tenant'), hardcoded internal values (real IP addresses, internal domain names, real ASNs, ID numbers), or factual claims stated as universal truths that are only true in one specific environment. References to global suppliers/sites is fine. Example-seeming naming/numbering is allowed. Pay attention to language surrounding the possibly-objectionable content; context mattrs.\n\nIf you deem the content more likely non-generalizable, return JSON: {\"ok\": false, \"reason\": \"GENERALIZABILITY WARNING in <filename>: <brief description of each issue found>\"}.\n\nOtherwise, return exactly `{\"ok\": true}`.",
             "statusMessage": "Checking generalizability..."
           }
         ]

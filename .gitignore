@@ -12,9 +12,9 @@
 **/*.local.*
 
 # Project-specific excludes
-*.txt
 reports/*
 !reports/.gitkeep
+tmp/
 
 # Python
 __pycache__/
@@ -65,5 +65,7 @@ htmlcov/
 # ruff
 .ruff_cache/
 
+# stuff...
 .claude/skills/testtest
 .claude/hooks/validate-claude-blob.py
+tmp/
