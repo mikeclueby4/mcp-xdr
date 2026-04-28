@@ -7,7 +7,7 @@ import httpx
 from mcp.types import TextContent, Tool
 
 import mcp_xdr._client as _client
-from mcp_xdr._output import _append_query_log, _run_query
+from mcp_xdr._output import _append_query_log, _format_colsrows_for_toolreturn
 import mcp_xdr._config as _config
 
 _RESULT_DESCRIPTION = (
@@ -55,7 +55,7 @@ async def run_sentinel_query(query: str) -> list[TextContent]:
     try:
         result = await _client.run_sentinel_query_raw(query)
         col_names, data_rows = _client._sentinel_result_to_tsv(result)
-        out = await _run_query(col_names, data_rows, "mcp-xdr-sentinel-")
+        out = await _format_colsrows_for_toolreturn(col_names, data_rows, "mcp-xdr-sentinel-")
     except httpx.HTTPStatusError as e:
         error_detail = e.response.text if e.response else str(e)
         out = [TextContent(type="text", text=f"Query error: {error_detail}")]

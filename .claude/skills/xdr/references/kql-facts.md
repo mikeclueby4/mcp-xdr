@@ -102,13 +102,22 @@ TableA
 | extend SpikeRatio = iff(todouble(Baseline) > 0, round(todouble(Recent) / todouble(Baseline), 2), todouble(999))
 ```
 
-**Double-serialized dynamic columns** — some dynamic columns (e.g. `NodeProperties`, `AgentToolsDetails`) are stored as JSON-encoded strings, not native dynamic objects. Direct property access returns null; wrap with `tostring()` first:
+**Double-serialized dynamic columns** — some columns are declared `dynamic` in the KQL schema but stored as a JSON-encoded string at rest. Direct property access returns null; wrap with `parse_json(tostring())` first. Confirmed examples: `EntraIdSignInEvents.ConditionalAccessPolicies`, `EntraIdSignInEvents.AuthenticationProcessingDetails`, `EntraIdSignInEvents.LogonType`. Diagnose with `gettype()` (returns `"string"`) or `bag_keys()` (compile error: "argument must be a dynamic").
+
 ```kql
-// WRONG — returns null
-| extend val = NodeProperties.rawData.exposureScore
+// WRONG — returns null for string-at-rest columns
+| extend val = ConditionalAccessPolicies[0].id
 // RIGHT
-| extend props = parse_json(tostring(NodeProperties))
-| extend val = tostring(props.rawData.exposureScore)
+| extend parsed = parse_json(tostring(ConditionalAccessPolicies))
+| extend val = tostring(parsed[0].id)
+```
+
+**`NodeProperties` (ExposureGraphNodes) — single-key wrapper, not double-serialized.** `gettype()` = `"dictionary"` (genuine native dynamic), but all data is nested under a single top-level key `rawData`. Direct `.rawData.field` access works; `bag_keys()` returns `["rawData"]`. No `parse_json(tostring())` needed:
+```kql
+// WRONG — returns null (no top-level field named "deviceName")
+| extend name = NodeProperties.deviceName
+// RIGHT — payload is always one level deeper
+| extend name = NodeProperties.rawData.deviceName
 ```
 
 **`ReportId` uniqueness differs by table family** — two completely different semantics, same column name:

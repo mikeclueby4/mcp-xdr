@@ -6,7 +6,7 @@ import httpx
 from mcp.types import TextContent, Tool
 
 import mcp_xdr._client as _client
-from mcp_xdr._output import _append_query_log, _cell_str, _run_query, _sanitise
+from mcp_xdr._output import _append_query_log, _cell_str, _format_colsrows_for_toolreturn, _sanitise
 import mcp_xdr._config as _config
 
 _RESULT_DESCRIPTION = (
@@ -60,7 +60,7 @@ async def run_hunting_query(query: str) -> list[TextContent]:
             "\t".join(_sanitise(_cell_str(row.get(n))) for n in col_names)
             for row in results
         ]
-        out = await _run_query(col_names, data_rows, "mcp-xdr-")
+        out = await _format_colsrows_for_toolreturn(col_names, data_rows, "mcp-xdr-")
     except httpx.HTTPStatusError as e:
         error_detail = e.response.text if e.response else str(e)
         out = [TextContent(type="text", text=f"Query error: {error_detail}")]

@@ -9,7 +9,7 @@ from mcp.types import TextContent, Tool
 
 import mcp_xdr._cache as _cache
 import mcp_xdr._client as _client
-from mcp_xdr._output import _append_query_log, _cell_str, _run_query, _sanitise
+from mcp_xdr._output import _append_query_log, _cell_str, _format_colsrows_for_toolreturn, _sanitise
 import mcp_xdr._config as _config
 
 
@@ -71,7 +71,8 @@ TOOL_DEFINITION = Tool(
         "Discover available tables and columns before writing KQL queries."
         "\n\n"
         "No arguments: lists all tables across Defender and (when configured) Sentinel as TSV. "
-        "SentinelLastSeen (hourly granularity) comes from the Log Analytics `Usage` table."
+        "SentinelLastSeen (hourly granularity) and SentinelSolution (e.g. SecurityInsights, LogManagement) come from the Log Analytics `Usage` table. "
+        "SentinelSolution indicates the product origin of a table: SecurityInsights = Defender stream; LogManagement = Azure/AAD native."
         "\n\n"
         "With table_name: returns the full column schema (ColumnName, ColumnType) plus "
         "up to 3 sample rows from that table."
@@ -81,13 +82,8 @@ TOOL_DEFINITION = Tool(
         "properties": {
             "table_name": {
                 "type": "string",
-                "description": "Optional. Table to inspect. Omit to list all tables.",
-            },
-            "source": {
-                "type": "string",
-                "enum": ["defender", "sentinel"],
-                "description": "Optional. Restrict to one source. Omit for both.",
-            },
+                "description": "Table to inspect. Omit to list all tables.",
+            }
         },
         "required": [],
     },
@@ -116,48 +112,52 @@ def _parse_getschema_sentinel(result: dict[str, Any]) -> list[tuple[str, str]]:
     ]
 
 
-async def get_schema(table_name: str | None, source: str | None) -> list[TextContent]:
-    """Unified schema discovery for Defender Advanced Hunting and Sentinel."""
+async def get_schema(table_name: str | None) -> list[TextContent]:
+    """MCP TOOL get_schema: Unified schema discovery for Defender Advanced Hunting and Sentinel."""
+    use_sentinel = bool(_config._sentinel_workspace_id)
+    source_key = "def" + ("sen" if use_sentinel else "")
     try:
-        if source is not None:
-            source = source.lower()
-            if source not in ("defender", "sentinel"):
-                out = [TextContent(type="text", text=f"Invalid source '{source}'. Use 'defender', 'sentinel', or omit.")]
-                _append_query_log("get_schema", f"table_name={table_name!r} source={source!r}", out[0].text, lang="text")
-                return out
-        use_defender = source in (None, "defender")
-        use_sentinel = (source in (None, "sentinel")) and bool(_config._sentinel_workspace_id)
-        if source == "sentinel" and not _config._sentinel_workspace_id:
-            out = [TextContent(type="text", text="Error: source='sentinel' but SENTINEL_WORKSPACE_ID is not configured.")]
-            _append_query_log("get_schema", f"table_name={table_name!r} source={source!r}", out[0].text, lang="text")
-            return out
         if table_name:
-            out = await _get_schema_for_table(table_name, use_defender, use_sentinel)
+            text = await _cache.cache_get(
+                f"schema-{table_name}-{source_key}.txt",
+                lambda: _get_schema_for_table(table_name),
+                ttl=_config.SCHEMA_TABLE_CACHE_TTL
+            )
+            out = [TextContent(type="text", text=text)]
         else:
-            out = await _get_schema_listing(use_defender, use_sentinel)
+            text = await _cache.cache_get(
+                f"alltables-{source_key}.tsv",
+                lambda: _get_schema_tablelist(),
+                ttl=_config.SCHEMA_LIST_CACHE_TTL
+            )
+            out = [TextContent(type="text", text=text)]
     except httpx.HTTPStatusError as e:
         error_detail = e.response.text if e.response else str(e)
         out = [TextContent(type="text", text=f"Schema error: {error_detail}")]
     except Exception as e:
         out = [TextContent(type="text", text=f"Schema error: {e}")]
-    args_label = f"table_name={table_name!r} source={source!r}" if table_name else "(listing all tables)"
+    args_label = f"table_name={table_name!r}" if table_name else "(listing all tables)"
     _append_query_log("get_schema", args_label, out[0].text if out else "", lang="text")
     return out
 
 
-async def _get_schema_listing(use_defender: bool, use_sentinel: bool) -> list[TextContent]:
-    """List all tables across sources as a TSV with activity columns."""
+async def _get_schema_tablelist() -> str:
+    """Fetch raw table listing data from APIs; return as TSV text (header + rows, no overflow limiter)."""
+    use_sentinel = bool(_config._sentinel_workspace_id)
     coros: list[tuple[str, Any]] = []
-    if use_defender:
-        coros.append(("def_tables", _cache.get_defender_tables()))
+    coros.append(("def_tables", _client.run_hunting_query_raw(
+        # TODO: this is a stupid expensive way to get the table list but until we implement pure API calls, it is what it is. 
+        # Getschema on the entire union forces Defender to enumerate all tables, then we distinct on $table.
+        "union withsource=$table * | distinct $table | sort by $table asc"
+    )))
     if use_sentinel:
         coros.append(("sen_usage", _client.run_sentinel_query_raw(
-            "Usage | where TimeGenerated > ago(30d) | summarize LastSeen=max(TimeGenerated) by DataType"
+            # This excludes tables that haven't received data in the last 30 days; seems reasonable 
+            # for a "what can I query?" listing and much cheaper than the above Defender hack.
+            "Usage | where TimeGenerated > ago(30d) | summarize LastSeen=max(TimeGenerated), SentinelSolution=any(Solution) by DataType"
         )))
 
-    if not coros:
-        return [TextContent(type="text", text="No sources available.")]
-
+    # TODO: yikes rewrite all of the below to not assume that a result can go missing. Also don't hide exceptions! Let the caller catch them!
     labels = [label for label, _ in coros]
     raw_results = await asyncio.gather(*[coro for _, coro in coros], return_exceptions=True)
     results_by_label: dict[str, Any] = dict(zip(labels, raw_results))
@@ -166,10 +166,11 @@ async def _get_schema_listing(use_defender: bool, use_sentinel: bool) -> list[Te
     if "def_tables" in results_by_label:
         r = results_by_label["def_tables"]
         if not isinstance(r, Exception):
-            def_tables = r  # already a set[str] from _cache.get_defender_tables()
+            def_tables = {row.get("$table", "") for row in r.get("results", []) if row.get("$table")}
 
     sen_tables: set[str] = set()
     sen_lastseen: dict[str, str] = {}
+    sen_solution: dict[str, str] = {}
     if "sen_usage" in results_by_label:
         r = results_by_label["sen_usage"]
         if not isinstance(r, Exception):
@@ -177,36 +178,37 @@ async def _get_schema_listing(use_defender: bool, use_sentinel: bool) -> list[Te
             col_idx = {c["name"]: i for i, c in enumerate(table["columns"])}
             dt_i = col_idx.get("DataType", -1)
             ls_i = col_idx.get("LastSeen", -1)
+            sol_i = col_idx.get("SentinelSolution", -1)
             for row in table["rows"]:
                 dt = str(row[dt_i]) if dt_i >= 0 and row[dt_i] else ""
                 ls = str(row[ls_i]) if ls_i >= 0 and row[ls_i] else ""
+                sol = str(row[sol_i]) if sol_i >= 0 and row[sol_i] else ""
                 if dt:
                     sen_tables.add(dt)
                     sen_lastseen[dt] = ls
+                    sen_solution[dt] = sol
 
     all_tables = sorted(def_tables | sen_tables)
-    if not all_tables:
-        return [TextContent(type="text", text="No tables found.")]
-
-    col_names = ["Table", "Defender", "Sentinel", "SentinelLastSeen"]
+    col_names = ["Table", "Defender", "Sentinel", "SentinelLastSeen", "SentinelSolution"]
     data_rows = []
     for t in all_tables:
         in_def = "yes" if t in def_tables else "-"
         in_sen = "yes" if t in sen_tables else "-"
         ls = sen_lastseen.get(t, "")
-        data_rows.append("\t".join([_sanitise(t), in_def, in_sen, ls]))
+        sol = sen_solution.get(t, "")
+        data_rows.append("\t".join([_sanitise(t), in_def, in_sen, ls, sol]))
 
-    return await _run_query(col_names, data_rows, "mcp-xdr-schema-")
+    return "\n".join(["\t".join(col_names)] + data_rows)
 
 
-async def _get_schema_for_table(
-    table_name: str, use_defender: bool, use_sentinel: bool
-) -> list[TextContent]:
-    """Return merged schema + sample rows for a specific table from the requested source(s)."""
+
+
+async def _get_schema_for_table( table_name: str ) -> str:
+    """Return merged schema + sample rows for a specific table from all sources."""
+    use_sentinel = bool(_config._sentinel_workspace_id)
     coros: list[tuple[str, Any]] = []
-    if use_defender:
-        coros.append(("def_schema", _client.run_hunting_query_raw(f"{table_name} | getschema")))
-        coros.append(("def_sample", _client.run_hunting_query_raw(f"{table_name} | take 3")))
+    coros.append(("def_schema", _client.run_hunting_query_raw(f"{table_name} | getschema")))
+    coros.append(("def_sample", _client.run_hunting_query_raw(f"{table_name} | take 3")))
     if use_sentinel:
         coros.append(("sen_schema", _client.run_sentinel_query_raw(f"{table_name} | getschema")))
         coros.append(("sen_sample", _client.run_sentinel_query_raw(f"{table_name} | take 3")))
@@ -218,29 +220,22 @@ async def _get_schema_for_table(
     # ── Collect per-source schema columns ────────────────────────────────────
     def_cols: list[tuple[str, str]] = []
     sen_cols: list[tuple[str, str]] = []
-    fallback_notes: list[str] = []
     error_parts: list[str] = []
 
     if "def_schema" in results_by_label:
         r = results_by_label["def_schema"]
-        s = results_by_label.get("def_sample")
         if isinstance(r, Exception):
-            if isinstance(r, httpx.HTTPStatusError) and r.response.status_code == 400:
+            if isinstance(r, httpx.HTTPStatusError) and r.response.status_code == 400:  # TODO: move this to client and return empty
                 error_parts.append("Defender: table not found in this source.")
             else:
                 error_parts.append(f"Defender: ERROR — {r}")
         else:
             def_cols = _parse_getschema_hunting(r)
-            if not def_cols and s is not None and not isinstance(s, Exception):
-                api_schema = s.get("schema", [])
-                if api_schema:
-                    def_cols = [(c.get("name", ""), c.get("type", "")) for c in api_schema if c.get("name")]
-                    fallback_notes.append("Defender schema from API metadata — table has no rows")
 
     if "sen_schema" in results_by_label:
         r = results_by_label["sen_schema"]
         if isinstance(r, Exception):
-            if isinstance(r, httpx.HTTPStatusError) and r.response.status_code == 400:
+            if isinstance(r, httpx.HTTPStatusError) and r.response.status_code == 400:  # TODO: move this to client and return empty
                 error_parts.append("Sentinel: table not found in this source.")
             else:
                 error_parts.append(f"Sentinel: ERROR — {r}")
@@ -260,12 +255,14 @@ async def _get_schema_for_table(
 
     if not merged:
         if error_parts:
-            return [TextContent(type="text", text="\n".join(error_parts))]
-        return [TextContent(type="text", text=f"Table '{table_name}' not found in any configured source.")]
+            return "\n".join(error_parts)
+        return f"Table '{table_name}' not found in any configured source."
 
     # ── Render merged schema table ────────────────────────────────────────────
-    note = f" ({'; '.join(fallback_notes)})" if fallback_notes else ""
-    lines = [f"Schema for {table_name}:{note}", ""]
+    lines = [
+        f"Schema for {table_name}:", 
+        ""
+    ]
     lines.append(f"{'ColumnName':<45} {'DefenderType':<15} SentinelType")
     lines.append("-" * 75)
     for col_name, (def_type, sen_type) in merged.items():
@@ -275,7 +272,7 @@ async def _get_schema_for_table(
     if error_parts:
         output_parts.append("\n".join(error_parts))
 
-    # ── Sample rows (per-source, unchanged) ──────────────────────────────────
+    # ── Sample rows (per-source, intelligently summarize huge cells) ──────────────────────────────────
     for source_label, sample_key, is_sentinel in [
         ("Defender", "def_sample", False),
         ("Sentinel", "sen_sample", True),
@@ -307,4 +304,12 @@ async def _get_schema_for_table(
         else:
             output_parts.append(f"Sample rows from {table_name} ({source_label}): (no rows — table may be empty)")
 
-    return [TextContent(type="text", text="\n\n---\n\n".join(output_parts))]
+    return "\n\n---\n\n".join(output_parts)
+
+
+async def warm_schema_cache() -> None:
+    """Warm the schema listing cache in the background. Swallows all exceptions."""
+    try:
+        await get_schema(None)
+    except Exception:
+        pass

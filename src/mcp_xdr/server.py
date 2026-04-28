@@ -13,11 +13,10 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-import mcp_xdr._cache as _cache
 import mcp_xdr._config as _config
 from mcp_xdr._tools_hunting import TOOL_DEFINITION as _D_HUNTING, run_hunting_query
 from mcp_xdr._tools_sentinel import TOOL_DEFINITION as _D_SENTINEL, run_sentinel_query
-from mcp_xdr._tools_schema import TOOL_DEFINITION as _D_SCHEMA, get_schema
+from mcp_xdr._tools_schema import TOOL_DEFINITION as _D_SCHEMA, get_schema, warm_schema_cache
 
 # Re-export for backward-compat with tests and external callers
 from mcp_xdr._config import INLINE_BYTE_LIMIT  # noqa: F401
@@ -29,7 +28,7 @@ server = Server("mcp-xdr")
 # Always-on tools:
 _ALWAYS_TOOLS: list[tuple[Tool, Any]] = [
     (_D_HUNTING, lambda args: run_hunting_query(args["query"])),
-    (_D_SCHEMA,  lambda args: get_schema(args.get("table_name"), args.get("source"))),
+    (_D_SCHEMA,  lambda args: get_schema(args.get("table_name"))),
 ]
 # Sentinel tool — only registered when workspace ID is configured:
 _SENTINEL_TOOLS: list[tuple[Tool, Any]] = [
@@ -59,7 +58,7 @@ def main() -> None:
 
 
 async def run_server() -> None:
-    asyncio.ensure_future(_cache.warm_cache())
+    asyncio.ensure_future(warm_schema_cache())
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 

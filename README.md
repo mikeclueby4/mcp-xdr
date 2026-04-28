@@ -147,7 +147,7 @@ For certificate auth, also add `"AZURE_CLIENT_CERTIFICATE_PATH": "/path/to/combi
 | Tool | Description |
 |------|-------------|
 | `run_hunting_query` | Execute KQL queries against Defender Advanced Hunting (Microsoft Graph Security API). Returns TSV with a header row. Results over ~10 KB are truncated inline; the full result is written to a tmpfile whose path is reported in a `[MCP-XDR:OVERFLOW]` marker line. |
-| `get_schema` | Unified schema discovery. No args: lists all tables across Defender + Sentinel as TSV. With `table_name`: returns column schema and up to 3 sample rows. Optional `source` param (`"defender"` / `"sentinel"`) restricts to one source. |
+| `get_schema` | Unified schema discovery. No args: lists all tables across Defender + Sentinel as TSV (`Table`, `Defender`, `Sentinel`, `SentinelLastSeen`, `SentinelSolution`). `SentinelSolution` indicates product origin (`SecurityInsights` = Defender stream, `LogManagement` = Azure/AAD native). With `table_name`: returns column schema with per-source types and up to 3 sample rows from each source. |
 | `run_sentinel_query` | Execute KQL queries against a Log Analytics workspace (Sentinel). Same TSV/overflow output format. Only available when `SENTINEL_WORKSPACE_ID` is set. |
 
 ## Query Log
@@ -197,7 +197,7 @@ The upstream repo authenticates as a **service principal** (certificate or clien
 
 This fork also:
 - Migrates from the retired `api.security.microsoft.com` endpoint to the **Microsoft Graph Security API** (`graph.microsoft.com/v1.0/security/runHuntingQuery`)
-- Adds **Microsoft Sentinel / Log Analytics** support (`run_sentinel_query`, `get_sentinel_tables`)
+- Adds **Microsoft Sentinel / Log Analytics** support (`run_sentinel_query`)
 - Ships a bundled **Claude Code skill** for expert KQL authoring against both Defender and Sentinel
 - **Enables all GitHub public-repo security features** (dependabot, codeql, vuln alerting, etc)
 

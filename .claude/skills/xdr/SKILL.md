@@ -25,7 +25,7 @@ allowed-tools: >-
 You have access to these MCP tools (some conditional on server config):
 - `get_schema` — unified schema discovery:
   - No args: lists all tables across Defender + Sentinel as TSV (`Table`, `Defender`, `Sentinel`, `SentinelLastSeen`). `SentinelLastSeen` comes from the Log Analytics `Usage` table (hourly granularity).
-  - With `table_name`: returns full column schema (`ColumnName`, `ColumnType`) + up to 3 sample rows. Queries both sources by default; use `source="defender"` or `source="sentinel"` to restrict.
+  - With `table_name`: returns full column schema (`ColumnName`, `ColumnType`) + up to 3 sample rows.
 - `run_hunting_query` — execute KQL via the **Microsoft Graph Security API** (`graph.microsoft.com/v1.0/security/runHuntingQuery`); covers all Defender XDR tables plus Sentinel tables when a workspace is onboarded to the unified Defender portal
 - `run_sentinel_query` — execute KQL via the **Log Analytics API** (`api.loganalytics.azure.com`); only present if `SENTINEL_WORKSPACE_ID` is configured
 
@@ -40,13 +40,7 @@ You have access to these MCP tools (some conditional on server config):
 | Workspace **not** onboarded to the Defender portal | `run_sentinel_query` |
 | Data older than 30 days (beyond Defender retention) | `run_sentinel_query` |
 
-**Important**: Even when a Sentinel workspace is onboarded to the Defender portal, Sentinel-sourced tables (`SecurityIncident`, `SecurityAlert`, `AAD*`, etc.) return **empty results** via `run_hunting_query` — the Graph API silently filters them due to RBAC or backend routing. Always use `run_sentinel_query` for these tables. They may appear in `get_schema()` listing with `Defender=yes` (schema discovery) but that does not mean they are queryable via `run_hunting_query`.
-
-When unsure which tool: call `get_schema()` with no args first — the `Defender` and `Sentinel` columns tell you exactly which source has the table. Tables with `Sentinel=yes` use `run_sentinel_query`; tables with only `Defender=yes` use `run_hunting_query`.
-
-`getschema` works in both:
-- `run_hunting_query("TableName | getschema")` for Defender tables
-- `run_sentinel_query("TableName | getschema")` for Log Analytics tables
+**Important**: Even when a Sentinel workspace is onboarded to the Defender portal, Sentinel-sourced tables (`SecurityIncident`, `SecurityAlert`, `AAD*`, etc.) return **empty results** via `run_hunting_query` — the Graph API silently filters them due to RBAC or backend routing. Always use `run_sentinel_query` for these tables. They may appear in `get_schema()` listing but that does not mean they are queryable via `run_hunting_query`.   TODO: verify.
 
 ## Before writing any query
 

@@ -61,7 +61,7 @@ def _blank_column_notice(col_names: list[str], data_rows: list[str]) -> str:
     return f"[MCP-XDR:BLANK-COLS] always_empty={', '.join(blank)}"
 
 
-async def _run_query(
+async def _format_colsrows_for_toolreturn(
     col_names: list[str],
     data_rows: list[str],
     tmpfile_prefix: str,

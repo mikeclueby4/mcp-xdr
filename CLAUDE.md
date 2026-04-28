@@ -28,14 +28,16 @@ HOWTO-ENTRA-APPREG-DELEGATED.md  # Entra ID app registration guide
 **Module DAG** (strictly acyclic):
 ```
 _config  ←  _auth, _output  ←  _client  ←  _tools_*  ←  server
+                _cache ↗
 ```
+`_cache` imports only `_config`; `_tools_schema` imports `_cache` + `_client`.
 Adding a new Graph API tool: create `_tools_foo.py` (imports `_client`, `_output`, `_config`; exports `TOOL_DEFINITION` + handler), add one import + one entry to `_ALWAYS_TOOLS` in `server.py`. No other files change.
 
 **Tool registry** — `_ALWAYS_TOOLS` / `_SENTINEL_TOOLS` in `server.py` are `(Tool, handler_lambda)` lists iterated by `list_tools` and `call_tool`. Sentinel tool included only when `_config._sentinel_workspace_id` is set.
 
 **Tools exposed** (2 permanent + 1 conditional on `SENTINEL_WORKSPACE_ID`):
 - `run_hunting_query` — Graph Security API (`POST /v1.0/security/runHuntingQuery`); TSV output, `[MCP-XDR:OVERFLOW]` line + tmpfile when result > 10 KB.
-- `get_schema` — no args: TSV table list with Defender/Sentinel/LastSeen/MB columns; with `table_name`: column schema + 3 sample rows from all sources concurrently.
+- `get_schema` — no args: TSV table list (`Table`, `Defender`, `Sentinel`, `SentinelLastSeen`, `SentinelSolution`); with `table_name`: merged schema (`ColumnName`, `DefenderType`, `SentinelType`) + 3 sample rows per source. Results disk-cached (`~/.mcp-xdr/<tenant>.cache/`). Cache key encodes active sources (`alltables-defsen.tsv`, `schema-<Table>-defsen.txt`).
 - `run_sentinel_query` — Log Analytics API (`POST api.loganalytics.azure.com/v1/workspaces/{id}/query`); same TSV/overflow format.
 
 **Auth priority** (all need `AZURE_TENANT_ID` + `AZURE_CLIENT_ID`): CertificateCredential → ClientSecretCredential → InteractiveBrowserCredential (browser on first use, DPAPI cache). Graph scope only at `authenticate()` time; Sentinel token acquired lazily to avoid `AADSTS70011`.
