@@ -37,6 +37,10 @@ Expand to filter by permission:
 
 `VerifiedPublisher` is a `dynamic` object. An empty object `{}` means the publisher is unverified — this is the common case for internal apps.
 
+## Join with CloudAppEvents
+
+`CloudAppEvents` has an `OAuthAppId` column (string, Entra OAuth client_id) on every row where an OAuth app performed the action. Join on `OAuthAppId` to correlate live activity with the app inventory.
+
 ## `OAuthAppUserConsentInfo` does not exist — it was never a real table
 
 `OAuthAppUserConsentInfo` **does not exist and never did** — it has zero official documentation, zero web references, and returns a semantic error in every tenant. Do not generate queries against it.
