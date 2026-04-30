@@ -1,75 +1,105 @@
-# DeviceNetworkInfo — Accumulated Learnings
+# DeviceNetworkInfo
 
-## IPAddresses is a dynamic JSON array — must mv-expand
+Snapshot table — network adapter state per device. One row per adapter per MDE heartbeat, not a continuous event stream. Source: MDE only (no MDI/MDO/MDCA).
 
-`IPAddresses` is stored as a JSON array of objects. Direct string comparisons won't work. Use `mv-expand` to get one row per IP:
+**Time column**: `Timestamp` (Defender). Also has `TimeGenerated` (same value, Sentinel side).
+
+**ReportId**: `long`, non-unique — composite key required: `ReportId + DeviceName + Timestamp`.
+
+## Schema divergence: string (Defender) vs dynamic (Sentinel)
+
+| Column | Defender type | Sentinel type |
+|---|---|---|
+| `IPAddresses` | `string` | `dynamic` |
+| `ConnectedNetworks` | `string` | `dynamic` |
+| `DnsAddresses` | `string` | `dynamic` |
+| `DefaultGateways` | `string` | `dynamic` |
+
+Use `parse_json(col)` for all four in Defender (no-op on already-dynamic in Sentinel). No `tostring()` wrapper needed — the string form is valid JSON.
+
+## Multiple rows per snapshot — one per adapter
+
+Each heartbeat produces one row per adapter including Down/Present/Unknown ones. Always filter `NetworkAdapterStatus == "Up"` to limit to active adapters. `NetworkAdapterStatus` confirmed values: `Up`, `Down`, `Present`, `Dormant`, `Unknown`.
+
+## IPAddresses — mv-expand required
+
+JSON array of objects: `{"IPAddress": "...", "SubnetPrefix": <int|null>, "AddressType": "..."}`.
+
+`SubnetPrefix` can be `null` (confirmed in live data — some adapters don't report it).
+
+`AddressType` confirmed values: `"Private"`, `"Public"`, `"LinkLocal"`.
 
 ```kql
 DeviceNetworkInfo
-| where TimeGenerated > ago(7d)
-| where DeviceName == "DEVICE-001"
+| where Timestamp > ago(7d)
 | where NetworkAdapterStatus == "Up"
 | extend IPs = parse_json(IPAddresses)
 | mv-expand IP = IPs
+| where tostring(IP.AddressType) == "Private"
 | extend LocalIP = tostring(IP.IPAddress)
 | extend SubnetPrefix = toint(IP.SubnetPrefix)
-| extend AddressType = tostring(IP.AddressType)
 ```
 
-`AddressType` values: `"Private"`, `"Public"`, `"LinkLocal"`.
-
-## Filtering to the meaningful active IP
-
-Link-local addresses (`169.254.x.x` and `fe80::`) are always present on adapters and are noise. Filtering by `AddressType == "Private"` is the most reliable approach. If you need to exclude link-local ranges explicitly, use `ipv6_is_match()` — never `startswith`, as IPv4 addresses may be stored in IPv6-mapped form (`::ffff:169.254.x.x`) which breaks string prefix matching.
-
-Note: `ipv6_is_match()` requires a `string` argument, not `dynamic` — after `mv-expand`, `IP.IPAddress` is `dynamic`, so `tostring()` is mandatory.
-
-```kql
-| where tostring(IP.AddressType) == "Private"
-// Alternative: exclude link-local by CIDR using ipv6_is_match (handles both native and ::ffff:-mapped forms)
-| where not(ipv6_is_match(tostring(IP.IPAddress), "169.254.0.0", 112))  // 169.254.0.0/16: IPv4 prefix /16 → IPv6 prefix 112
-| where not(ipv6_is_match(tostring(IP.IPAddress), "fe80::", 10))         // fe80::/10
-```
-
-When searching for a specific IP in `IPAddresses`, always use `ipv6_is_match()`:
+When filtering by IP value, `ipv6_is_match()` is mandatory — IPs may be IPv6-mapped:
 
 ```kql
 | where ipv6_is_match(tostring(IP.IPAddress), "10.1.2.3")
 ```
 
-## ConnectedNetworks reveals WiFi SSID and internet status
-
-`ConnectedNetworks` is a JSON array. The first element covers the active association:
+To exclude link-local explicitly (handles both native `169.254.x.x` and `::ffff:`-mapped form):
 
 ```kql
-| extend Network = tostring(parse_json(ConnectedNetworks)[0].Name)
-| extend NetCategory = tostring(parse_json(ConnectedNetworks)[0].Category)  // "Public" or "Private"
-| extend HasInternet = tobool(parse_json(ConnectedNetworks)[0].IsConnectedToInternet)
+| where not(ipv6_is_match(tostring(IP.IPAddress), "169.254.0.0", 112))
+| where not(ipv6_is_match(tostring(IP.IPAddress), "fe80::", 10))
 ```
 
-This is the most reliable way to track which physical location (home, office, guest) a device was at for a given time window — more useful than IP ranges alone.
+## ConnectedNetworks — WiFi SSID, internet status, network category
 
-## NetworkAdapterName is a GUID, not a friendly name
+JSON array: `{"Name": "...", "Description": "...", "IsConnectedToInternet": <bool|null>, "Category": <"Public"|"Private"|"Domain"|null>}`.
 
-The `NetworkAdapterName` column contains Windows interface GUIDs (e.g. `{B92CB009-294C-40F5-B851-86A80B223861}`), not friendly names like "Wi-Fi" or "Ethernet". Use `MacAddress` to identify adapters and correlate across rows. `NetworkAdapterType` (`Wireless80211`, `Ethernet`) is more readable.
+`Category` confirmed values: `"Public"`, `"Private"`, `"Domain"`, blank/null. On non-domain-joined devices, NLA cannot detect a DC — corporate network may appear as `"Public"` or `"Private"` rather than `"Domain"`.
 
-## DefaultGateways and DnsAddresses are also JSON arrays
+```kql
+| extend CN = parse_json(ConnectedNetworks)
+| extend SSID       = tostring(CN[0].Name)
+| extend NetCat     = tostring(CN[0].Category)
+| extend HasInternet = tobool(CN[0].IsConnectedToInternet)
+```
+
+Combining `SSID` + `DefaultGateways` + `DnsAddresses` gives a reliable location fingerprint (office vs home vs guest WiFi).
+
+## DefaultGateways and DnsAddresses
+
+Simple JSON arrays of IP strings.
 
 ```kql
 | extend Gateway = tostring(parse_json(DefaultGateways)[0])
 | extend DNS1    = tostring(parse_json(DnsAddresses)[0])
 ```
 
-## Multiple rows per snapshot — one per adapter
+## NetworkAdapterName is a Windows GUID, not a friendly name
 
-Each telemetry snapshot produces one row per network adapter (including inactive/Down ones). Always filter `NetworkAdapterStatus == "Up"` and then further filter to the adapter with a real IP to avoid noise from virtual/Down adapters.
+On Windows, `NetworkAdapterName` contains GUIDs like `{B92CB009-294C-40F5-B851-86A80B223861}`. Use `MacAddress` to identify adapters across rows. `NetworkAdapterType` (`Wireless80211`, `Ethernet`, `Unknown`) is more readable.
 
-## Useful for device location history investigations
+## TunnelType
 
-Combining `ConnectedNetworks[0].Name` (SSID/network name) with `DefaultGateways` and `DnsAddresses` gives a precise location fingerprint — e.g. office vs home vs guest WiFi — without needing GPS or physical records. This is valuable when correlating "it worked from location A but fails from location B".
+Present in schema; in practice always `"None"` where tunnels aren't active. Values listed in docs: `6to4`, `Teredo`, `ISATAP`, `PPTP`, `SSTP`, `SSH`.
 
-## Network Category (Public/Private/Domain) may not reflect actual trust level
+## Docs-listed columns absent from live schema (as of 2026-04)
 
-`ConnectedNetworks[].Category` reflects what Windows NLA assigned at connection time. On fleets where devices are not AD domain-joined, NLA cannot detect a domain controller and will never assign "Domain" — so corp and home networks may both appear as "Public" or "Private" depending on user response to the NLA prompt.
+`OnboardingStatus` and `NetworkAdapterDnsSuffix` appear in official docs but are **absent from the live schema** in both Defender and Sentinel sources. Do not reference them in queries until confirmed present.
 
-Verify whether the observed distribution of Public/Private matches your expectations before using Category as a security discriminator in firewall rules. If corp networks are not being correctly identified as a specific profile, consider pushing Trusted Network Detection policy (via MDM/GPO or your VPN client's on-net detection) to reliably set the adapter's network category.
+## Snapshot deduplication for current state
+
+Not a time-series event stream — query the latest snapshot per device/adapter:
+
+```kql
+DeviceNetworkInfo
+| where Timestamp > ago(1d)
+| summarize arg_max(Timestamp, *) by DeviceId, MacAddress
+```
+
+## Cross-table joins
+
+- Join to `DeviceInfo` on `DeviceId` for OS/machine group/join type context.
+- This table is the primary source for device IP-to-identity resolution — join to `DeviceNetworkEvents` on `DeviceId` when correlating network connections to adapter state.

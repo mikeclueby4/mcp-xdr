@@ -51,17 +51,17 @@ Read your .claude/agent-memory/xdr-refine/MEMORY.md file.
 5. **Live schema**: `get_schema(table_name="<TableName>")` for local tenant's current schema.
 6. You may also read other reference files for related tables if relevant.
 7. You may also run hunting/sentinel queries to validate specific patterns or edge cases if relevant to the finding. Remember to keep query outputs minimal and focused on the specific point you're trying to confirm or disprove. Examining fixed enum columns (e.g. ActionType, EventType) for their actual values is often a good way to confirm patterns.
-8. **Community query lookup** — before claiming a surprising pattern or gotcha, check community input:
+8. **Note mismatches in column types between Defender and Sentinel**: is parse_json() needed on a string column in *one* platform? Consider raw string pre-filtering before parse_json() if practical+safe as it uses cheap bloom filters. (Prefer avoiding `parse_json(tostring())` - it is CPU-expensive!).
+9. **Community query lookup** — before claiming a surprising pattern or gotcha, check community input:
     - DeepWiki MCP `ask_question` on `Bert-JanP/Hunting-Queries-Detection-Rules`, asking what queries or patterns the repo has for `<TableName>` and/or `<ColumnName>`. Also try asking for "how to ..." and the reverse of the surprising pattern.
     Use this only to enrich examples and patterns; do NOT use it to override schema facts from live schema or official docs.
     - Also, if available, use `web_grounded_answer` with minimally `I need to learn about KQL <TableName>` and your natural-language question(s). Treat carefully — the web is noisy and you don't want to accidentally incorporate a false claim from an untrustworthy source.
-
 
 **Reconcile**: existing file + official docs + live schema. Docs may be out of date. Live schema may use out-of-date ingestion mechanisms OR DCRs. If you find a conflict, try to determine which is correct based on evidence. If you cannot determine which is correct *for the general case in any tenant*, document the conflict and the evidence for each side in the reference file, and suggest it as an open question for future investigation.
 
 Conflicting findings may be further researched with web tools (start with `web_grounded_answer` if available), but do not invent any content that cannot be directly supported by a trustworthy source.
 
-Consider Grep in .../references/tables/*.md for particularily-interesting column names.
+Consider Grep() in .claude/skills/xdr/references/tables/*.md for particularily-interesting column names.
 
 ## Writing rules
 
@@ -86,7 +86,7 @@ High-value suggestions to add generalizable facts to `.claude/skills/xdr/referen
 Update your .claude/agent-memory/xdr-refine/MEMORY.md with good learnings from this process, so that future reference-writing is faster and more accurate:
 - Reference facts about **a table** goes in its individual reference file.
 - Meta-learnings about how to write and research go in agent memory! 
-- Cross-reference-file relationships belong in agent memory, especially notes to remember to check/update a particular reference file on encountering particular types of contents while working on a different/new file. Consider Grep in .../references/tables/*.md for particularily-interesting column names.
+- Cross-reference-file relationships belong in agent memory, especially notes to remember to check/update a particular reference file on encountering particular types of contents while working on a different/new file. Consider Grep() in .claude/skills/xdr/references/tables/*.md for particularily-interesting column names.
 - Avoid documenting negative learnings - they may not stay negative over time, and you won't discover that without actually trying again.
 
 ## Existing reference files

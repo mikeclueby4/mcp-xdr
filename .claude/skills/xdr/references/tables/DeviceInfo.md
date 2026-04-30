@@ -1,33 +1,111 @@
-# DeviceInfo — Accumulated Learnings
+# DeviceInfo
 
-## PublicIP is the device's egress IP as seen by Defender cloud
+Canonical device metadata table — one row per device per heartbeat (updated continuously, full snapshot per update). Primary enrichment source for `DeviceId → device metadata` joins.
 
-`PublicIP` records the public-facing IP address the device was NATted behind when it last checked in with Defender. Updated approximately hourly. This is the IP that external servers see as the source of outbound connections.
+## Key facts
 
-Highly useful for:
-- Determining which office/network egress IP a device is behind (especially when multiple subnets NAT to different public IPs)
-- Correlating a device's location to a server-side IP block
-- Confirming whether two devices share the same public egress path
+- **Not an event stream** — each write replaces the prior row for that device. Use `arg_max` to get current state. Official docs recommend `arg_max(ingestion_time(), *)` (not `Timestamp`) for latest-state dedup:
+  ```kql
+  DeviceInfo
+  | where isnotempty(OSPlatform)
+  | summarize arg_max(ingestion_time(), *) by DeviceId
+  ```
+- `ProcessUniqueId` — **absent from live schema** (docs omit it here, consistent with other Device* tables).
+- `ReportId` is `long` (local counter, not globally unique) — composite key: `ReportId + DeviceName + Timestamp`.
+
+## Schema divergences (Defender vs Sentinel)
+
+| Column | Defender | Sentinel |
+|---|---|---|
+| `LoggedOnUsers` | `string` (JSON array) | `dynamic` |
+| `AdditionalFields` | `string` (JSON object) | `dynamic` |
+| `ConnectivityType` | `string` | N/A |
+| `DiscoverySources` | `string` | N/A |
+| `FirmwareVersions` | `string` | N/A |
+| `DlpInfo` | `string` | N/A |
+| `DeviceObjectId` | N/A | `string` |
+| `RestrictedDeviceSecurityOperations` | N/A | `string` |
+
+Use `parse_json(LoggedOnUsers)` and `parse_json(AdditionalFields)` in both sources — parses the string in Defender, no-op on dynamic in Sentinel.
+
+## LoggedOnUsers
+
+JSON array of objects. Keys: `UserName`, `DomainName`, `Sid`. macOS rows may omit `DomainName`/`Sid`.
 
 ```kql
-DeviceInfo
-| where TimeGenerated > ago(7d)
-| where DeviceName == "DEVICE-001"
-| project TimeGenerated, PublicIP, OnboardingStatus, SensorHealthState
-| sort by TimeGenerated asc
+| mv-expand User = parse_json(LoggedOnUsers)
+| extend UserName = tostring(User.UserName), Domain = tostring(User.DomainName)
 ```
 
-## Devices on the same internal network can have different PublicIPs
+## AdditionalFields — internet-facing metadata
 
-On segmented corporate networks, different VLANs/subnets may NAT through different firewall interfaces to different public IPs. Do not assume all devices on `corp.local` share the same public egress — check `DeviceInfo.PublicIP` per device. This matters when investigating why one device is blocked by a site while another on the "same network" is not.
+Only populated when `IsInternetFacing == true`. Keys confirmed (2026-04):
+- `InternetFacingLastSeen` (datetime string)
+- `InternetFacingReason` — `"PublicScan"` or `"ExternalNetworkConnection"`
+- `InternetFacingLocalIp`, `InternetFacingLocalPort`
+- `InternetFacingPublicScannedIp`, `InternetFacingPublicScannedPort`
+- `InternetFacingTransportProtocol`
 
-## PublicIP updates lag by up to ~1 hour
+Blank for non-internet-facing devices.
 
-`PublicIP` is snapshot-based, not event-driven. If a device switches networks, the new public IP may not appear for up to an hour. Cross-reference with `DeviceNetworkInfo` (which captures network changes more granularly) for precise transition timing.
+## JoinType — confirmed values (2026-04)
 
-## OnboardingStatus and SensorHealthState
+`"AAD Joined"`, `"Hybrid Azure AD Join"`, `"AAD Registered"`, or blank (not joined/unknown).
 
-| Value | Meaning |
-|---|---|
-| `Onboarded` / `Active` | Device is enrolled in MDE and reporting normally |
-| `Insufficient info` | Defender lost contact (e.g. device off network, VPN dropped) — `PublicIP` will be blank for that interval |
+## OnboardingStatus — confirmed values (2026-04)
+
+`"Onboarded"`, `"Can be onboarded"`, `"Unsupported"`, `"Insufficient info"` (lost contact).
+
+## ConnectivityType — confirmed values (2026-04)
+
+`"Standard"`, `"Streamlined"`, or blank. Defender-only column.
+
+## PublicIP
+
+Egress IP as seen by the Defender cloud service. Snapshot-based (updated ~hourly). Represents the NAT/proxy IP, not necessarily the device's internal IP. May be blank when `OnboardingStatus == "Insufficient info"`. Use `DeviceNetworkInfo` for precise network-change timing.
+
+Different VLANs/subnets may NAT through different IPs — do not assume all devices on the same domain share the same `PublicIP`.
+
+## DlpInfo (Defender-only string column)
+
+JSON object confirming DLP policy state. Keys: `IsDlpConfigurationValid`, `DlpPolicyLastModifiedTimeUTC`, `IsDlpEnabled`, `IsDefenderRealTimeProtectionEnabled`, `IsDefenderBehaviorMonitoringEnabled`, `HasDlpACBandwidthExceeded`, `HasDlpValidUpn`, `DlpUpn`. Values can be `null` for unsupported/IoT devices.
+
+## DiscoverySources (Defender-only string column)
+
+JSON object mapping product name to last-seen date string, e.g. `{"Defender for Endpoint":"2026-04-27"}`.
+
+## DeviceManualTags / DeviceDynamicTags
+
+Both are JSON arrays stored as `string` in Defender. Use `parse_json(DeviceManualTags)` to access; use `has` for pre-filter before parsing:
+
+```kql
+| where DeviceManualTags has "Servers"
+| where parse_json(DeviceManualTags) has_any ("Servers", "Critical")
+```
+
+## Enrichment join patterns
+
+`DeviceInfo` is the canonical enrichment source. Join from any Device* table on `DeviceId`:
+
+```kql
+DeviceProcessEvents
+| where Timestamp > ago(1d)
+// ...filters...
+| join kind=leftouter (
+    DeviceInfo
+    | where Timestamp > ago(1d)
+    | summarize arg_max(Timestamp, OSPlatform, JoinType, MachineGroup, PublicIP) by DeviceId
+) on DeviceId
+```
+
+`AadDeviceId` joins to Entra ID / `EntraIdSignInEvents.EntraIdDeviceId` for cross-table device-identity correlation. Also surfaced in Sentinel as `DeviceObjectId` column.
+
+`MergedToDeviceId` / `MergedDeviceIds` — when a device is reimaged or renamed, the old `DeviceId` is linked here. Follow `MergedToDeviceId` for stable long-term device history.
+
+## Cloud device columns (sparse)
+
+`AzureResourceId`, `AzureVmId`, `AzureVmSubscriptionId` — Azure VMs.
+`AwsResourceName` — AWS.
+`GcpFullResourceName` — GCP.
+`CloudPlatforms` — string listing which platforms apply.
+All blank for standard endpoint devices.

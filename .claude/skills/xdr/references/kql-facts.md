@@ -231,3 +231,14 @@ TableName
 | project Timestamp, DeviceName, AccountName, AdditionalFields
 | sort by Timestamp desc
 ```
+
+---
+
+### Cross-platformness: Windows, Mac, Linux
+
+For endpoint-sourced tables and columns: **keep in mind that MDE runs on Windows+Mac+Linux**! 
+  - Looking for ".exe" is Windows-only. 
+  - Network metadata can be populated differently, e.g. only numeric IPs vs also domain names. 
+
+Example query ideas: 
+  - Get samples of file paths with forward slashes vs backslashes.

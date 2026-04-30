@@ -39,15 +39,15 @@ Either array can be empty `[]` for a given row. Empirically: ~58% of rows have d
 
 ---
 
-## Linux evidence — DiskPaths contains RPM queries, not file paths
+## DiskPaths platform behaviour
 
-On Linux devices, `DiskPaths` entries may be RPM query commands rather than file paths:
+`DiskPaths` content varies by OS — values are not always file system paths:
 
-```
-rpm -qa --qf '%{NAME}:%{Sourcerpm}:\n' | grep Chromium | cut -f 1 -d ':' | xargs rpm -qid
-```
+- **Windows**: normal file paths with backslash separators (e.g. `C:\Program Files\...`)
+- **macOS**: `.app` bundle paths (e.g. `/System/Applications/TV.app`) — not individual binaries
+- **Linux (RPM)**: RPM query commands, not paths (e.g. `rpm -qa --qf '%{NAME}:%{Sourcerpm}:\n' | grep Chromium | cut -f 1 -d ':' | xargs rpm -qid`)
 
-Do not assume `DiskPaths` values are always file system paths. Filter to Windows paths before doing path-based analysis (e.g. `has ":\\"` ).
+Filter to Windows-only paths with `has ":\\"` before any path-based analysis.
 
 ---
 

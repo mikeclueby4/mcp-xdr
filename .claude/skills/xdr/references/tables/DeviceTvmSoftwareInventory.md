@@ -1,21 +1,21 @@
-# DeviceTvmSoftwareInventory (and DeviceTvmSoftwareVulnerabilities)
+# DeviceTvmSoftwareInventory
 
-TVM snapshot tables: installed software + CVEs per device. Populated by MDE only — empty if MDE is not deployed.
+TVM snapshot table: installed software per device with EOS metadata. Companion `DeviceTvmSoftwareVulnerabilities` holds CVE rows. Populated by MDE only — empty without MDE deployment.
 
 Replaced the older `DeviceTvmSoftwareInventoryVulnerabilities` table.
 
 ---
 
-## Critical: rows accumulate, no timestamp in this table
+## Critical: rows accumulate, no timestamp
 
-**No `Timestamp` or `LastSeen` column here.** TVM retains every version ever observed — old rows are never deleted on update. A device with 12 OpenSSL rows has seen 12 versions over its lifetime, not 12 simultaneous installs.
+**No `Timestamp` or `LastSeen` column.** TVM retains every version ever observed — old rows are never deleted on update. A device with 12 OpenSSL rows has seen 12 versions over its lifetime, not 12 simultaneous installs.
 
 Consequences:
-- `dcount(DeviceName)` per version overcounts — most "affected" devices have already updated
+- `dcount(DeviceName)` per version overcounts — most "affected" devices may have already updated
 - CVE joins explode: N versions × M CVEs × K devices >> actual current exposure
 - `max(SoftwareVersion)` as a currency proxy **fails** when multiple real installs coexist (e.g. Python 3.11 user install + Python 3.14 system install — `max()` hides the vulnerable one)
 
-**To approximate current state**, join `DeviceTvmSoftwareEvidenceBeta` on `DeviceId, SoftwareVendor, SoftwareName, SoftwareVersion` and filter by `LastSeenTime` (string — requires `todatetime()`). Rows with a recent `LastSeenTime` are likely still installed; absent rows were likely removed.
+**To approximate current state**, join `DeviceTvmSoftwareEvidenceBeta` on `DeviceId, SoftwareVendor, SoftwareName, SoftwareVersion` and filter by `LastSeenTime` (string — requires `todatetime()`):
 
 ```kql
 DeviceTvmSoftwareInventory
@@ -26,7 +26,7 @@ DeviceTvmSoftwareInventory
 | summarize Versions=make_set(SoftwareVersion) by DeviceName
 ```
 
-**Ground truth for "is this binary actively loaded/running?"** requires yet another table:
+**Ground truth for "is this binary actively loaded/running?"**:
 - `DeviceImageLoadEvents` — DLL mapped into a process within the query window
 - `DeviceProcessEvents` — executable ran
 
@@ -34,29 +34,17 @@ Use TVM for fleet-wide discovery; `DeviceTvmSoftwareEvidenceBeta.LastSeenTime` t
 
 ---
 
-## EndOfSupportStatus values
+## Primary join: DeviceTvmSoftwareVulnerabilities
 
-Full enum per the MDE export API docs (confirmed against live data 2026-04):
+Join key: `SoftwareVendor, SoftwareName, SoftwareVersion` (+ `DeviceId` for device-scoped joins). The join table carries `CveId`, `VulnerabilitySeverityLevel`, `RecommendedSecurityUpdate`, etc.
 
-| Value | Meaning |
-|---|---|
-| *(empty / `None`)* | Supported |
-| `Upcoming EOS Version` | This specific version branch is approaching EOL (shown up to 6 months in advance) |
-| `EOS Version` | This specific version branch is past EOL — no patches for this version |
-| `Upcoming EOS Software` | The entire software product is approaching EOL |
-| `EOS Software` | The entire software product is past EOL — no patches at all |
-
-**`EOS Version` vs `EOS Software`**: `EOS Version` means a newer supported version exists (upgrade path available); `EOS Software` means the whole product is discontinued (no upgrade path within the same product).
-
-`EndOfSupportDate` is the branch/product EOL date, not a row timestamp.
-
----
-
-## Coverage gaps
-
-TVM only discovers software with MSI/WMI registration or a known CPE mapping. Zip-extracted or portable binaries are invisible regardless of how many DLLs they load.
-
-End-of-support capability is currently available only for Windows products.
+```kql
+DeviceTvmSoftwareInventory
+| where SoftwareName == "openssl"
+| join kind=inner DeviceTvmSoftwareVulnerabilities
+    on DeviceId, SoftwareVendor, SoftwareName, SoftwareVersion
+| project DeviceName, SoftwareVersion, CveId, VulnerabilitySeverityLevel
+```
 
 ---
 
@@ -69,10 +57,10 @@ End-of-support capability is currently available only for Windows products.
 | `SoftwareVendor` | string | Lowercase (e.g. `microsoft`, `google`) |
 | `SoftwareName` | string | Lowercase, underscore-separated (e.g. `visual_c++`, `.net_framework`) |
 | `SoftwareVersion` | string | Dot-separated string — no numeric sort without `split()` |
-| `EndOfSupportStatus` | string | See enum table above |
+| `EndOfSupportStatus` | string | See enum table below |
 | `EndOfSupportDate` | datetime | Branch/product EOL date, not row age |
-| `ProductCodeCpe` | string | CPE 2.3 name; `'not available'` (literal string) for unregistered software |
-| `OSPlatform` | string | e.g. `Windows11`, `WindowsServer2022` |
+| `ProductCodeCpe` | string | CPE 2.3 name; literal `"Not Available"` (title-case) for unregistered software |
+| `OSPlatform` | string | e.g. `Windows11`, `WindowsServer2022`, `macOS`, `Linux`, `Android`, `iOS` |
 | `OSVersion` | string | Full build string |
 | `OSArchitecture` | string | e.g. `x64` |
 | `MachineGroup` | string | RBAC group name; present in Defender schema, absent in Sentinel schema |
@@ -82,3 +70,53 @@ No `ReportId` — join to device tables via `DeviceId` or `DeviceName`.
 Sentinel variant adds `TimeGenerated` (datetime); Defender variant lacks it. Neither has `Timestamp`.
 
 **For physical evidence (disk paths, registry keys) and last-seen time:** join to `DeviceTvmSoftwareEvidenceBeta` on `DeviceId, SoftwareVendor, SoftwareName, SoftwareVersion`. That table has no `DeviceName` — get it from here.
+
+---
+
+## EndOfSupportStatus values
+
+Confirmed via live data (2026-04):
+
+| Value | Meaning |
+|---|---|
+| *(empty string)* | Supported / no EOS data |
+| `Upcoming EOS Version` | This version branch approaching EOL (shown up to 6 months ahead) |
+| `EOS Version` | This version branch past EOL — no patches for this version |
+| `Upcoming EOS Software` | Entire product approaching EOL |
+| `EOS Software` | Entire product discontinued — no patches at all |
+
+**`EOS Version` vs `EOS Software`**: `EOS Version` means an upgrade path exists; `EOS Software` means the whole product is discontinued.
+
+`EndOfSupportDate` is the branch/product EOL date, not a row timestamp.
+
+EOS metadata is populated for Windows, macOS, and Android software (confirmed live 2026-04). Linux and iOS coverage appears sparse.
+
+---
+
+## ProductCodeCpe: "Not Available" casing
+
+The literal sentinel value is `"Not Available"` (title-case), not `"not available"` as official docs state. Filter with:
+
+```kql
+| where ProductCodeCpe != "Not Available"
+// or case-insensitive:
+| where ProductCodeCpe !~ "not available"
+```
+
+---
+
+## Coverage gaps
+
+TVM only discovers software with MSI/WMI registration or a known CPE mapping. Zip-extracted or portable binaries are invisible.
+
+---
+
+## Sentinel vs Defender schema
+
+| Column | Defender | Sentinel |
+|---|---|---|
+| `MachineGroup` | present | absent |
+| `TimeGenerated` | absent | present |
+| `Timestamp` | absent | absent |
+
+No dynamic columns in this table — no `parse_json()` needed anywhere.
