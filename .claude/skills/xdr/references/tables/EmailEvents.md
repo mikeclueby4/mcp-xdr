@@ -156,6 +156,7 @@ EmailEvents
 | `EmailPostDeliveryEvents` | `NetworkMessageId` | Post-delivery actions (ZAP, admin remediation) |
 | `UrlClickEvents` | `NetworkMessageId` | User clicks on links from this email |
 | `AlertEvidence` | `NetworkMessageId` | Alert correlation |
+| `CampaignInfo` | `NetworkMessageId` | MDO campaign membership — `CampaignId` is NOT a column in `EmailEvents`; must join via `NetworkMessageId` |
 | `IdentityInfo` | `RecipientObjectId` or `SenderObjectId` → `AccountObjectId` | User metadata (department, job title) |
 
 `NetworkMessageId` is the canonical join key across all Email* tables. `ReportId` (GUID) is also unique per event and can join to `AlertEvidence`.

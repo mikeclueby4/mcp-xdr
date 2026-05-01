@@ -2,6 +2,9 @@
 
 ## Research workflow learnings
 
+### EntraIdSpnSignInEvents: Defender-only, flat schema, Entra P2 required
+`EntraIdSpnSignInEvents` is Defender-only (Sentinel 400). No dynamic columns — entirely flat. Entra ID P2 license required. `SessionId` blank when `IsConfidentialClient == false`. `UniqueTokenId` is base64url (not GUID). Sentinel equivalents: `AADServicePrincipalSignInLogs` (SP) + `AADManagedIdentitySignInLogs` (MI); `UniqueTokenId` maps to `UniqueTokenIdentifier` there. `ReportId` is GUID (safe single-column join). No user-identity columns (`AccountUpn` etc.) — SP identity is `ServicePrincipalName`/`ServicePrincipalId`. When working on EntraIdSpnSignInEvents, also note `EntraIdSignInEvents.md` for the parallel user sign-in table.
+
 ### Parallelise the first four calls
 Always fire these four in one block (no deps between them):
 1. `Read` existing reference file
@@ -50,6 +53,9 @@ Join `ThreatIntelIndicators` to `ThreatIntelObjects` via `tostring(Data.id)` (ST
 - `IdentityInfo` is a standard enrichment join for any table with `AccountObjectId`.
 - Email* table family (`EmailEvents`, `EmailAttachmentInfo`, `EmailUrlInfo`, `EmailPostDeliveryEvents`) all join on `NetworkMessageId`. When working on any of these tables, note that `EmailEvents` is the root/anchor table.
 - When updating `EmailEvents.md`: `AuthenticationDetails`, `DetectionMethods`, and `AdditionalFields` are string-encoded JSON in Defender source despite `AdditionalFields` being typed `dynamic` in Sentinel. Always note `parse_json()` required.
+
+### CampaignInfo: one row per recipient message, join via NetworkMessageId
+`CampaignInfo` has one row per campaign × recipient message. `CampaignId` is NOT a column in `EmailEvents` — the only join path is `NetworkMessageId`. `ReportId` in CampaignInfo is a composite non-GUID string (`<CampaignId>:0:<NetworkMessageId>-<long>-<long>`) — do not join to AlertEvidence or other tables via ReportId. Defender-only (Sentinel empty). Confirmed CampaignType values: `Phish`, `Malware`. CampaignSubType = brand/family or blank. CampaignId = dot-separated hex string, not a GUID.
 
 ### EmailEvents fanout trap
 `EmailEvents` produces one row per recipient. Count distinct messages with `dcount(NetworkMessageId)` or `summarize by NetworkMessageId`, not `count()`. Mention this when writing queries for email-volume analyses.
@@ -324,3 +330,278 @@ Unlike SecurityAlert.Tactics (comma-separated string), `AdditionalData.tactics` 
 
 ### SecurityIncident: ProviderName confirmed value
 In tenants using Defender XDR as the primary SOC platform with Sentinel workspace onboarded: `ProviderName = "Microsoft XDR"` (not "Azure Sentinel" or similar). Verify in other configurations.
+
+### UrlClickEvents: UrlChain and DetectionMethods are string-typed JSON, ThreatTypes is plain string
+- `UrlChain`: `string`-typed JSON array — use `parse_json(UrlChain)` before indexing.
+- `DetectionMethods`: `string`-typed JSON dict `{ThreatType: [methods]}` — use `parse_json(DetectionMethods)`.
+- `ThreatTypes`: plain `string` — direct `has "Phish"` is correct, no parsing needed.
+- `NetworkMessageId` is blank for Teams and Office clicks; also unreliable for Drafts/Sent items — cannot join to Email* tables in those cases.
+- `Workload` confirmed values: `Email`, `Teams`, `Office`, `Copilot`.
+- `ActionType` confirmed values (2026-04): `ClickAllowed`, `ClickBlocked`, `UrlErrorPage`, `ClickBlockedByTenantPolicy`.
+- `ReportId` is a GUID string (like Email* tables) — globally unique, single-column join is safe.
+- Requires MDO deployment; table empty without it.
+
+### AlertInfo + AlertEvidence: combined reference file at AlertInfo.md
+These tables are always documented together (reference file: `AlertInfo.md`).
+
+### AlertInfo/AlertEvidence: AlertId prefix encodes source product
+`sn` = Sentinel analytics, `fa` = MDO, `ca` = MDCA, `da` = MDE, `aa` = MDI. Confirmed live 2026-05. Useful for fast product-scoped filtering without needing `ServiceSource` column.
+
+### AlertInfo: Category is a plain string, not JSON array
+`AlertInfo.Category` = single tactic string (e.g. `"Persistence"`). By contrast, `AlertEvidence.Categories` is a JSON array string. Don't confuse the two — they differ in both name (singular vs plural) AND format (string vs JSON array).
+
+### AlertInfo/AlertEvidence: AttackTechniques is a JSON array string in both tables
+`gettype()` = `"string"`. Format: `'["Valid Accounts (T1078)","Cloud Accounts (T1078.004)"]'` — each element has name + T-number together. Use `parse_json(AttackTechniques)` + `mv-expand` to expand. Use `has "T1078"` for T-number pre-filtering (cheap bloom filter before parse).
+
+### AlertEvidence: AdditionalFields is string in Defender, dynamic in Sentinel
+Same divergence pattern as Device* tables. `parse_json(AdditionalFields)` works in both without `tostring()` wrapper. Contains full entity JSON — structure varies by EntityType.
+
+### AlertEvidence: EntityType confirmed values (2026-05)
+`User`, `Machine`, `File`, `Process`, `Ip`, `Url`, `MailMessage`, `MailCluster`, `Mailbox`, `CloudApplication`, `SecurityGroup`, `ActiveDirectoryDomain`, `RegistryValue`
+
+### AlertEvidence: no join to Device* tables via ReportId
+`AlertEvidence` has no `ReportId`. To correlate with `DeviceProcessEvents` etc., join on `DeviceId` extracted from `EntityType == "Machine"` rows. Do NOT attempt a `ReportId` join.
+
+### AlertInfo + AlertEvidence: alert fanout trap
+One alert = 1 AlertInfo row + N AlertEvidence rows. After joining, always `dcount(AlertId)` to count distinct alerts — `count()` counts entity rows, not alerts.
+
+### IdentityDirectoryEvents: AdditionalFields is native dynamic in Defender
+`gettype()` = `"dictionary"` in Defender — direct property access works. `@odata.type` wrapper key present but harmless. No `parse_json()` needed. Sentinel rows also native dynamic. Schema identical (no Defender/Sentinel divergence for AdditionalFields type).
+
+### IdentityDirectoryEvents: ADCS Certificate issuance — Attributes is double-nested
+`AdditionalFields.Attributes` is a **JSON-encoded string** (not a nested object) containing `CertificateTemplate`, `ccm` etc. Requires second `parse_json(tostring(af.Attributes))`. Disposition value `"3"` = issued. This is an exception to the "native dynamic" rule above — other AdditionalFields keys on this ActionType are direct-access.
+
+### IdentityDirectoryEvents: actor vs target column semantics
+`AccountName/Upn/Sid/ObjectId` = actor. `TargetAccountUpn/DisplayName` = subject account acted upon. `DestinationDeviceName/IP/Port` = DC that processed the action. `DeviceName/IPAddress/Port` = source client. For some ActionTypes (e.g. Directory Services replication) actor columns blank — use `AdditionalFields.SourceAccountId/SourceAccountSid` instead.
+
+### IdentityDirectoryEvents: Category/AttackTechniques only when MDI flags event
+`Category` and `AttackTechniques` in AdditionalFields are absent from routine benign events — only populated when MDI has a threat signal. `AttackTechniques` is a plain comma-separated string (not JSON array).
+
+### IdentityDirectoryEvents: DestinationPort type diverges
+`int` in Defender, `string` in Sentinel. Use `toint(DestinationPort)` for cross-platform numeric comparisons. Same for `Port`.
+
+### IdentityDirectoryEvents: Sentinel rows have ARG.*/ACTOR.* extra keys
+Sentinel-ingested rows include `ARG.TASK`, `ACTOR.ACCOUNT`, `ACTOR.ENT*` enrichment keys absent from Defender rows. Not reliable in cross-source queries.
+
+### IdentityDirectoryEvents: requires MDI deployment
+Table returns no results if Defender for Identity is not deployed. Note this when writing queries for environments where MDI status is unknown.
+
+### IdentityLogonEvents: dual-source table — MDI (AD) and MDCA (cloud)
+Two completely distinct row populations sharing the same schema:
+- **MDI rows**: `Application = "Active Directory"`, `Protocol = Kerberos/Ntlm`, `Location = "INTERNAL_NETWORK"`. `LogonType` uses Windows descriptions (`Resource access`, `Failed logon`, `Credentials validation`, `Interactive`, `Remote desktop`).
+- **MDCA rows**: `Application = Microsoft 365/Azure/Exchange/SharePoint/Teams`, `Protocol` = blank. `LogonType` uses OAuth/protocol method strings (`OAuth2:Authorize`, `SAS:EndAuth`, etc.). Non-interactive sign-ins NOT captured — those go to `AADNonInteractiveUserSignInLogs`/`EntraIdSignInEvents`.
+
+### IdentityLogonEvents: AdditionalFields is native dynamic in both sources
+`gettype()` = `"dictionary"` in both Defender and Sentinel. Direct property access works. `@odata.type` wrapper present in Defender rows but harmless. Key MDI fields: `ActionTypeInner`, `KerberosType`, `KdcOptions`, `Spns`, `EncryptionType`, `RequestTicketHash`, `Count` (string), `Category`, `AttackTechniques` (comma-separated string, NOT JSON array). Sentinel cloud rows add `ARG.*`/`ACTOR.*` enrichment keys absent from Defender.
+
+### IdentityLogonEvents: UncommonForUser is native dynamic array, LastSeenForUser is native dynamic dict
+`UncommonForUser`: `gettype()` = `"array"`, contains feature-name strings for dimensions that are unusual for this user. Filter `array_length(UncommonForUser) > 0` for anomaly hunting.
+`LastSeenForUser`: `gettype()` = `"dictionary"`, int values (days since last seen = 0 means first-time). Defender rows include `FieldName@odata.type: "#Int64"` annotation siblings — ignore them. Access directly: `toint(LastSeenForUser.IPAddress)`.
+
+### IdentityLogonEvents: Port and DestinationPort diverge by source
+`int` in Defender, `string` in Sentinel — same pattern as `IdentityDirectoryEvents`. Use `toint()` for cross-platform comparisons.
+
+### IdentityLogonEvents: ActionType is binary (only 2 values)
+`LogonSuccess` and `LogonFailed` only. `FailureReason` blank on success; mix of short codes (MDI: `Generic`, `WrongPassword`, `AccountLocked`) and long human-readable strings (MDCA cloud) on failure.
+
+### IdentityLogonEvents: Category/AttackTechniques same MDI pattern as IdentityDirectoryEvents
+Only populated on MDI-flagged events. `AttackTechniques` is a comma-separated plain string. Confirmed techniques: Kerberoasting (T1558.003), Valid Accounts (T1078.002), RDP (T1021.001).
+
+### IdentityLogonEvents: ReportId is GUID string (safe single-column join)
+Unlike Device* tables, `ReportId` is a GUID string — globally unique. No composite key needed.
+
+### IdentityLogonEvents: distinct from DeviceLogonEvents
+MDI covers the identity/DC plane; MDE (`DeviceLogonEvents`) covers the endpoint plane for the same logon. Correlate on `AccountSid` + `Timestamp` window, not `ReportId`.
+
+### IdentityLogonEvents: requires MDI for AD rows, MDCA for cloud rows
+Table may be empty or partial if neither is deployed. Cloud rows only cover interactive + legacy protocol sign-ins (not all sign-ins).
+
+### IdentityQueryEvents: MDI-only, three ActionTypes
+`DNS query`, `LDAP query`, `SAMR query` — all `Application = "Active Directory"`. No MDCA rows (unlike IdentityLogonEvents). Requires MDI deployment. DNS query is highest-volume by far (~15x LDAP volume).
+
+### IdentityQueryEvents: AdditionalFields is native dynamic in both sources
+`gettype()` = `"dictionary"` in both Defender and Sentinel. Direct property access works — no `parse_json()` needed. `@odata.type` wrapper present in Defender rows, harmless. Sentinel rows add `ARG.TASK`, `FROM.DEVICE`, `TO.DEVICE`, `ACTOR.DEVICE` enrichment keys absent from Defender — same pattern as `IdentityDirectoryEvents` and `IdentityLogonEvents`.
+
+### IdentityQueryEvents: LDAP-specific AdditionalFields keys
+`BaseObject` (base DN), `LdapSearchScope` (`"WholeSubtree"`, `"SingleLevel"`, `"BaseObject"`), `SearchFilter` (full LDAP filter string). SAMR-specific: `QueriedUniqueEntityId`. Common to all: `ActionTypeInner` (`ldapquery`/`samrquery`/`dnsquery`), `Count` (string), `SourceComputerId`/`SourceComputerObjectGuid`/`SourceComputerSid`, `DestinationComputerObjectGuid`.
+
+### IdentityQueryEvents: Category/AttackTechniques same MDI pattern as IdentityDirectoryEvents + IdentityLogonEvents
+Only populated when MDI flags the event. `AttackTechniques` is comma-separated plain string (NOT JSON array). Common categories: `"Discovery"`. Common techniques: `"Domain Trust Discovery (T1482)"`, `"Permission Groups Discovery (T1069), Account Discovery (T1087)"`.
+
+### IdentityQueryEvents: Query column blank for SAMR
+`Query` is always blank for `SAMR query` ActionType. The target group/user name is in `QueryTarget` instead. LDAP `Query` contains a human-readable description of the search.
+
+### IdentityQueryEvents: Port/DestinationPort int/string divergence
+`int` in Defender, `string` in Sentinel — same pattern as `IdentityDirectoryEvents` and `IdentityLogonEvents`. Use `toint()` for cross-platform comparisons.
+
+### Identity* table family: Port/DestinationPort int/string divergence is universal
+Confirmed across `IdentityLogonEvents`, `IdentityDirectoryEvents`, `IdentityQueryEvents` — always `int` in Defender, `string` in Sentinel. Treat this as a rule for any Identity* table not yet verified.
+
+### IdentityAccountInfo: Defender-only snapshot, Sentinel returns 400
+`IdentityAccountInfo` returns HTTP 400 from Sentinel Log Analytics API — Defender-only. No `SentinelType` columns. Live schema includes `TimeGenerated` and `SourceSystem` Log Analytics system columns even though it's Defender-only; use `Timestamp` for time filtering.
+
+### IdentityAccountInfo: GroupMembership contains display name strings, not IDs
+`GroupMembership` is a native dynamic array of group **display name strings**. Not usable for programmatic group membership checks requiring GUIDs. All dynamic columns (`GroupMembership`, `AssignedRoles`, `EligibleRoles`, `EnrolledMfas`, `Tags`) are native dynamic — no `parse_json()` needed.
+
+### IdentityAccountInfo: DefenderRiskLevel/DefenderRiskUpdateTime absent from live schema
+Official docs list these two columns; they do not appear in the live schema. Same "docs ahead of schema" pattern seen in other tables.
+
+### IdentityAccountInfo vs IdentityInfo
+These overlap but differ. `IdentityInfo` is the standard enrichment join (Defender+Sentinel, key=`AccountObjectId`). `IdentityAccountInfo` is Defender-only, key=`AccountId`/`SourceProviderAccountId`, adds `EligibleRoles` (PIM), `EnrolledMfas`, identity-link metadata (`IdentityId`, `IsPrimary`, `IdentityLinkType`), and multi-source account federation. When working on privilege-escalation or MFA-gap queries, suggest `IdentityAccountInfo` over `IdentityInfo`.
+
+### BehaviorAnalytics: all three dynamic columns are native dynamic
+`UsersInsights`, `DevicesInsights`, `ActivityInsights` are all `gettype()` = `"dictionary"` — direct property access and `bag_keys()` work without `parse_json()` in both Defender and Sentinel. ActivityInsights boolean-flag values are **strings** (`"True"`/`"False"`), not booleans.
+
+### BehaviorAnalytics: join key to UserPeerAnalytics
+`UsersInsights.AccountObjectID` (from BehaviorAnalytics) == `UserPeerAnalytics.UserId`. There is NO top-level `UserId` column in BehaviorAnalytics — must extract from the dynamic field. When working on BehaviorAnalytics queries, always note the UserPeerAnalytics companion and the IdentityInfo enrichment join.
+
+### UserPeerAnalytics: UPN/UserName columns always blank
+`UserPrincipalName`, `UserName`, `PeerUserPrincipalName`, `PeerUserName` are always blank in live data. Only `UserId`/`PeerUserId` (Entra GUIDs) are populated. Rank range is 1–20. Join to `IdentityInfo` on `AccountObjectId` to resolve names.
+
+### UserPeerAnalytics: update-append table, deduplicate needed
+Same (UserId, PeerUserId, Rank) combination appears across multiple `TimeGenerated` rows. Always deduplicate with `summarize arg_max(TimeGenerated, *) by UserId, PeerUserId` before analysis.
+
+### BehaviorAnalytics: ActivityType casing inconsistency
+`Logon` and `LogOn` both appear as ActivityType values in live data — they coexist. Do not assume one canonical casing. Use case-insensitive `=~` or `in~` if filtering by ActivityType.
+
+### BehaviorAnalytics: ActivityInsights context keys vary by ActivityType
+Beyond the boolean anomaly flags, `ActivityInsights` also contains scalar context keys like `Resource`, `App`, `LogonMethod`, `EventResult`, `EventCount`, `LastTimeUserPerformedAction`, `NewProcessName`, `ParentProcessName` etc. These vary based on source event type — always live-sample before relying on a specific key.
+
+### ExposureGraphNodes + ExposureGraphEdges: combined reference file at ExposureGraphNodes.md
+Both tables documented together. Defender-only (Sentinel returns 400). No Timestamp column.
+
+### ExposureGraphNodes: NodeProperties rawData wrapper (not double-serialized)
+`NodeProperties` is native dynamic (`gettype()` = `"dictionary"`), `bag_keys()` = `["rawData"]`. All payload is under `.rawData`. Do NOT attempt `parse_json(tostring())` — not needed. BUT do NOT access `.fieldName` directly at top level — always go via `.rawData.fieldName`. Already documented in kql-facts.md.
+
+### ExposureGraphNodes: EntityIds elements are native dynamic dicts
+`EntityIds[0]` is a native dynamic dict (not a JSON string). `gettype()` = `"dictionary"`. Access `.type` and `.id` directly. `AadObjectId` `.id` format: `"tenantid=<guid>;objectid=<guid>"`.
+
+### ExposureGraphNodes: NodeLabel casing is inconsistent
+Mix of lowercase (`device`, `user`, `group`), PascalCase (`Cve`), kebab-case (`mde-healthFinding`), Azure resource paths (`microsoft.compute/virtualmachines`). Use `=~` or `in~` when uncertain.
+
+### ExposureGraphEdges: EdgeProperties roles are double-nested JSON strings
+`EdgeProperties.rawData.permissions.roles` is a dynamic array, but each element is a **JSON string** (not a native dict) — requires `parse_json(tostring(role))` to access `id`, `name`, `actions`. Confirmed on `has role on` edges.
+
+### ExposureGraphEdges: EdgeProperties may be empty rawData
+`affecting` edges have `rawData` present but no child keys. Always check before accessing sub-fields.
+
+### ExposureGraphNodes/ExposureGraphEdges: table population depends on deployed products
+MDI required for identity edges; Defender for Cloud for `mdcSecurityRecommendation` nodes and Azure resource edges. Warn when querying in unknown-product-deployment contexts.
+
+### ExposureGraphNodes: @odata.type annotation sibling keys everywhere
+Same `fieldName@odata.type: "#Collection(String)"` / `"#Int64"` annotation pattern as other tables. Appears throughout `rawData` for array and typed scalar fields. Ignore when iterating bag_keys.
+
+### MessageEvents + MessageUrlInfo: combined reference at MessageEvents.md
+Defender-only (Sentinel 400). Both tables. Join key is `TeamsMessageId`. Requires MDO deployment.
+
+### MessageEvents: column names differ from official docs
+Official docs use `MessageFormatType`, `MessageFormatSubtype`, `MessageSubject`. Live schema names: `MessageType`, `MessageSubtype`, `Subject`. `ThreadName` is in live schema but not in docs. `LastEditedTime` is `datetime` in live schema, docs say `string`. Always use live schema names.
+
+### MessageEvents: RecipientDetails is native dynamic array
+`gettype()` = `"array"`, elements are native dynamic dicts. Direct `mv-expand` and property access work — no `parse_json()` needed. `@odata.type` wrapper key present in elements but harmless.
+
+### MessageEvents: ThreatTypes/DetectionMethods/ConfidenceLevel blank in benign tenants
+In practice >99% of rows have all three blank. ThreatTypes is plain string; DetectionMethods and ConfidenceLevel are dynamic. Do not use these columns for volume/counting queries.
+
+### MessageUrlInfo: ThreatTypes absent from live schema despite docs listing it
+Querying `ThreatTypes` on MessageUrlInfo causes semantic error (column does not exist). Only `MessageEvents` carries the threat verdict.
+
+### MessageUrlInfo: ReportId is composite string, not a simple GUID
+Format: `<guid>_<long-integer>`. Multiple URLs from the same message produce distinct ReportId values. Join across tables via `TeamsMessageId`, not `ReportId`.
+
+### UrlClickEvents: TeamsMessageId join path
+`UrlClickEvents` with `Workload == "Teams"` can be joined to `MessageEvents`/`MessageUrlInfo` via `TeamsMessageId`. Note: in UrlClickEvents the equivalent column may need extraction from the `Url` column — check UrlClickEvents.md for current confirmed join keys.
+
+### CloudAuditEvents: Defender for Cloud control-plane table (not SaaS app events)
+Covers Azure ARM, AWS, GCP, Kubernetes control-plane audit. Requires Defender for Cloud integration. Sentinel returns 400.
+- `ActionType` values in live data are `CloudAuditEvent{Create,Read,Update,Delete,Other,Get}` — docs omit the `CloudAuditEvent` prefix entirely (wrong).
+- Live schema has `AzureResourceId`, `AwsResourceName`, `GcpFullResourceName` — docs incorrectly show a single `ResourceId` column.
+- `ISP` is uppercase in live schema; docs show `Isp`.
+- `AdditionalFields` is always null in Azure rows — do not parse it.
+- `Account` = subscription GUID for Azure service-principal actions (not a UPN). Actor identity in `RawEventData.principalOid`.
+- `RawEventData` is native dynamic. But `RawEventData.httpRequest`, `RawEventData.claims`, `RawEventData.authorization` are **JSON strings** inside the bag — each needs `parse_json(tostring(RawEventData.fieldName))`.
+- `RawEventData.caller` is blank for Azure rows.
+- `ReportId` for Azure rows equals `RawEventData.correlationId`.
+
+### CloudAuditEvents vs CloudAppEvents: completely different tables
+`CloudAuditEvents` = Defender for Cloud infrastructure control-plane (Azure/AWS/GCP/K8s).
+`CloudAppEvents` = MDCA SaaS app connector (M365, Exchange, SharePoint, Teams, 3rd-party SaaS).
+Do not confuse them. Both are Defender-only in practice (Sentinel 400 for CloudAuditEvents; CloudAppEvents present in Sentinel but empty).
+
+### MicrosoftPurviewInformationProtection: Basic log — pre-filter aggressively
+Table is classified as **Basic log** in Azure Monitor. Queryable via both `run_hunting_query` and `run_sentinel_query` with identical row counts. Uses `TimeGenerated` (not `Timestamp`). No `ReportId` column.
+
+### MicrosoftPurviewInformationProtection: dominant event type is NOT a label change
+`SensitivityLabeledFileOpened` (RecordTypeName: `SensitivityLabeledFileAction`) is the highest-volume Operation by far — it tracks that a labelled file was opened, not that a label changed. Exclude `Operation in ("SensitivityLabeledFileOpened", "SensitivityLabeledFileRenamed")` when hunting for label lifecycle changes.
+
+### MicrosoftPurviewInformationProtection: dynamic column population is sparse
+Most dynamic columns (`Common`, `SensitiveInfoTypeData`, `ConditionMatch`, `RuleActions`, `SharePointMetaData`, `ExchangeMetaData`, `Receivers`, `AppAccessContext`) are null for `SensitivityLabeledFileAction` rows (the majority). `EmailInfo` is populated only on email-based `SensitivityLabelAction` rows. `CurrentProtectionType`/`PreviousProtectionType` are native dynamic dicts populated on file events. `DataState` and `Scope` are always blank in live data (2026-04).
+
+### MicrosoftPurviewInformationProtection: official docs page 404s
+The expected docs URL `https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-microsoftpurviewinformationprotection-table` returns 404 (2026-04). Use the Azure Monitor reference instead: `https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/microsoftpurviewinformationprotection`.
+
+### CloudStorageAggregatedEvents: major docs/live schema mismatch — docs columns live in AdditionalFields
+Docs list `FirstEventTimestamp`, `LastEventTimestamp`, `CountryName`, `CityName`, `ProvinceName`, `ClientSystemServiceName`, `ClientCloudPlatformName`, `IsTorExitNode`, `IsKnownSuspiciousIp`, `IsPrivateIp`, `SuspiciousUserAgentName`, `HashReputationMd5List` as top-level columns. In the live schema **all of these are absent as top-level columns** — they are inside `AdditionalFields` (native dynamic, no `parse_json()` needed). `SuspiciousUserAgentName` and `HashReputationMd5List` not observed in live AdditionalFields keys either.
+
+### CloudStorageAggregatedEvents: aggregation table, not event stream
+One row per (storage account, IP, identity, auth type) per hour. `DataAggregationStartTime`/`DataAggregationEndTime` are the bucket boundaries. `Timestamp` = ingestion time (~1 hr after bucket end). Only `ActionType` value: `"Data Aggregation"`. Defender-only (Sentinel 400). Requires Defender for Cloud integration.
+
+### CloudStorageAggregatedEvents: OperationNamesList and Md5Hashes are native dynamic arrays
+Both `gettype()` = `"array"` — direct `mv-expand` and indexing work without `parse_json()`. `Md5Hashes` is usually an empty array `[]` even in active Defender for Storage tenants.
+
+### CloudStorageAggregatedEvents: join to StorageBlobLogs for per-request detail
+`StorageBlobLogs` (Sentinel) provides individual request rows. Use `StorageAccount` or `AzureResourceId` as the join bridge between `CloudStorageAggregatedEvents` (aggregated, Defender) and `StorageBlobLogs` (per-request, Sentinel). Always note both tables when writing Azure Storage hunting queries.
+
+### Anomalies: Basic log — Sentinel-only, pre-filter aggressively
+Sentinel-only (`SecurityInsights`). Basic log (more expensive per-query). Always pre-filter with `TimeGenerated` and ideally `AnomalyTemplateName` before accessing dynamic columns.
+
+### Anomalies: Tactics/Techniques are JSON array strings despite string schema type
+`Tactics` and `Techniques` are `string`-typed in schema but contain JSON arrays at rest (e.g. `["Persistence","Collection"]`). Use `parse_json(Tactics)` + `mv-expand` before indexing. Use `Tactics has "Persistence"` as a cheap bloom filter pre-check.
+
+### Anomalies: ExtendedProperties double-serializes ActivityInsights/UserInsights/DeviceInsights
+The `ExtendedProperties` dynamic dict contains copies of `ActivityInsights`, `UserInsights`, `DeviceInsights` as **JSON-encoded strings** — `parse_json(tostring(ExtendedProperties.ActivityInsights))` needed. Prefer the top-level columns which are already native dynamic.
+
+### Anomalies: ActivityInsights boolean flags are strings ("True"/"False")
+Same pattern as BehaviorAnalytics.ActivityInsights. Values are string `"True"`/`"False"`, not booleans. Use `tostring(ActivityInsights.SomeFlag) == "True"`, not `tobool()`.
+
+### Anomalies: RuleStatus can be blank for UEBA rules
+`RuleStatus` = `"Production"` for ML rules; blank `""` for UEBA rules. Do not filter `== "Production"` unless you intend to exclude UEBA anomalies.
+
+### Anomalies: RuleId == AnomalyTemplateId for built-in rules
+For out-of-box rules, `RuleId` and `AnomalyTemplateId` hold the same GUID. `RuleId` = analytics rule instance; `AnomalyTemplateId` = template. They diverge only if a custom copy of the rule is created.
+
+### Anomalies: Entities uses $id/$ref JSON reference syntax
+`Entities` is native dynamic array but elements use `{"$id": "N", ...}` and `{"$ref": "N"}` cross-reference syntax. Skip `$ref`-only elements with `where isnotempty(tostring(Entity.Type))`.
+
+### Anomalies: ExtendedLinks contains raw KQL source queries
+`ExtendedLinks[0].DetailBladeInputs` contains the full KQL query string that produced the anomaly's underlying events. Useful for drilldown into source tables (OfficeActivity, BehaviorAnalytics, etc.).
+
+### Anomalies: BehaviorAnalytics companion join
+UEBA anomalies derive from `BehaviorAnalytics`. Join via `UserPrincipalName` + overlapping `TimeGenerated` window. `UserInsights.AccountObjectID` joins to `IdentityInfo.AccountObjectId` for enrichment. When working on Anomalies queries, suggest BehaviorAnalytics drilldown for UEBA rows.
+
+### Anomalies: no direct join key to SecurityAlert/SecurityIncident
+No shared column for a direct join. Correlate via `UserPrincipalName` + time window overlap.
+
+### FileMaliciousContentInfo: SHA256 is hex-encoded base64, NOT standard hex
+`SHA256` column is 88 chars — the SHA256 hash stored as a base64 string (44 chars, e.g. `SEvDXjENk8zYdmqtgfCTKDp+y55TSPUF3+N8SvvA5lQ=`) where each ASCII char of the base64 is hex-encoded. All other Defender tables (EmailAttachmentInfo, DeviceFileEvents, etc.) use standard 64-char lowercase hex. Cannot join on SHA256 across tables without conversion. `unhex()` is not available in Defender KQL — cross-table file correlation must use FileName + time/user context.
+
+### FileMaliciousContentInfo: majority of rows are clean scans
+Despite the table name, most rows are benign files scanned by MDO Safe Attachments — `ThreatTypes`/`ThreatNames`/`DetectionMethods` are blank on clean files. Filter `isnotempty(ThreatTypes)` to isolate actual detections.
+
+### FileMaliciousContentInfo: Sentinel is Basic log, Lake-only — rows absent in practice
+Azure Monitor marks this as Basic log + Lake-only ingestion. In practice Sentinel returns no rows. Treat as Defender-only for query purposes.
+
+### FileMaliciousContentInfo: ThreatTypes is string (not dynamic despite docs)
+Official docs say `ThreatTypes` is `dynamic`. Live schema (both Defender and Sentinel): `string`. Use `has "Malware"` etc. — no `parse_json()` needed.
+
+### FileMaliciousContentInfo: DetectionMethods diverges — dynamic in Defender, string in Sentinel
+Live Defender schema: `dynamic`. Sentinel schema: `string`. Use `parse_json(tostring(DetectionMethods))` for cross-source portability.
+
+### FileMaliciousContentInfo: DocumentID uses capital D (docs say DocumentId)
+Live schema column name: `DocumentID`. Official docs say `DocumentId`. Capital D form is correct in queries.
+
+### FileMaliciousContentInfo: FolderPath is SharePoint site URL, not filesystem path
+Contains the SharePoint/OneDrive site URL (e.g. `https://contoso-my.sharepoint.com/personal/...`), not a file system path.
+
+### FileMaliciousContentInfo: Workload values confirmed (2026-05)
+`OneDrive`, `MicrosoftTeams`, `SharePoint`.

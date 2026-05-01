@@ -89,23 +89,26 @@ When a user describes a problem rather than naming a table, read the relevant pl
 
 ## Table coverage notes
 
-Notable tables that may need extra care:
+Tables with a `…/tables/<Name>.md` reference file: read that file before writing queries — gotchas, sample patterns, and Defender/Sentinel divergence are documented there. The entries below are redirect traps (steer away from stale training-data table names) and one-liners for tables that lack a reference file.
+
+### Deprecated / renamed — do not use for new queries
+
+| Old name | Use instead |
+|----------|-------------|
+| `AADSignInEventsBeta` | `EntraIdSignInEvents` (GA Dec 2025) |
+| `AADSpnSignInEventsBeta` | `EntraIdSpnSignInEvents` (GA; has `GatewayJA4`, `SessionId`, `UniqueTokenId`) |
+| `ThreatIntelligenceIndicator` | `ThreatIntelIndicators` (ingestion stopped 2025-07-31; retiring 2026-05-31) — see `…/tables/ThreatIntelligenceIndicator.md` |
+
+### Tables with reference files — see the file, not this section
+
+`AIAgentsInfo` · `Anomalies` · `BehaviorAnalytics` · `UserPeerAnalytics` · `CampaignInfo` · `CloudStorageAggregatedEvents` · `DeviceNetworkEvents` · `DeviceProcessEvents` · `DeviceLogonEvents` · `DeviceFileEvents` · `DeviceRegistryEvents` · `DeviceImageLoadEvents` · `DeviceEvents` · `DeviceInfo` · `DeviceNetworkInfo` · `DeviceFileCertificateInfo` · `EmailEvents` · `EmailAttachmentInfo` · `EmailUrlInfo` · `EmailPostDeliveryEvents` · `EntraIdSignInEvents` · `EntraIdSpnSignInEvents` · `SigninLogs` · `GraphAPIAuditEvents` · `OAuthAppInfo` · `SecurityAlert` · `SecurityEvent` · `SecurityIncident` · `ThreatIntelIndicators` · `ThreatIntelObjects` · `CloudAppEvents` · `CloudAuditEvents` · `IdentityInfo` · `IdentityAccountInfo` · `IdentityLogonEvents` · `IdentityDirectoryEvents` · `IdentityQueryEvents` · `AuditLogs` · `AzureActivity` · `OfficeActivity` · `StorageBlobLogs` · `DeviceTvm*` · `DeviceBaselineCompliance*` · `ExposureGraphNodes` (covers both `ExposureGraphNodes` + `ExposureGraphEdges`) · `UrlClickEvents` · `MessageEvents` (covers both `MessageEvents` + `MessageUrlInfo`) · `MicrosoftPurviewInformationProtection` · `FileMaliciousContentInfo`
+
+### Tables without reference files — inline notes
 
 | Table | Notes |
 |-------|-------|
-| `AIAgentsInfo` | Copilot Studio / AI agent inventory. `AgentToolsDetails`, `KnowledgeDetails`, `ConnectedAgentsSchemaNames` are dynamic — sample first. Rows are written on agent create/modify/delete events only (not a daily heartbeat), so the table is very sparse. **Always deduplicate with `summarize arg_max(Timestamp, *) by AIAgentId`** to get current state. Use `ago(90d)` or omit time filter — narrow windows will miss most agents. See `…/tables/AIAgentsInfo.md`. |
-| `DeviceNetworkEvents` | See `…/tables/DeviceNetworkEvents.md`. Key gotchas: `Protocol` has both `"Tcp"` and `"TcpV4"` — use `startswith "Tcp"` not `== "Tcp"`; `ConnectionSuccess` ≠ allowed (network protection blocks post-handshake); `AdditionalFields` is `string` in Defender/`dynamic` in Sentinel — use `parse_json(AdditionalFields)`; inbound rows (`ConnectionAcknowledged`, `ConnectionAttempt`) have no initiating process context; `DnsConnectionInspected` contains full DNS query+response in `AdditionalFields`; `SslConnectionInspected` has JA3/JA4 fingerprints. `ReportId` non-uniqueness: see "ReportId uniqueness" section above. |
-| `EntraIdSignInEvents` | See `…/tables/EntraIdSignInEvents.md`. GA replacement for `AADSignInEventsBeta`. Uses `Timestamp` not `TimeGenerated`. Key column naming traps: `Application` (not `AppName`/`AppDisplayName`), `Country` (not `CountryCode`), `AccountUpn` (not `UserPrincipalName`), `EntraIdDeviceId` (not `DeviceId`). Geo is flat (no `parse_json` needed). Has `GatewayJA4`, `IsSignInThroughGlobalSecureAccess`, `UniqueTokenId`. |
-| `SigninLogs` / `AADNonInteractiveUserSignInLogs` | See `…/tables/SigninLogs.md`. Key gotcha: `LocationDetails` and `DeviceDetail` are `dynamic` in `SigninLogs` but `string` in `AADNonInteractiveUserSignInLogs` — after `union` use `tostring(parse_json(tostring(col)).field)` to avoid `SEM0100`. |
-| `ExposureGraphNodes/Edges` | Security Exposure Management graph. `NodeProperties` keys vary by `NodeLabel` — the official docs don't enumerate them; always live-sample with `take 3` first. |
-| `GraphAPIAuditEvents` | MS Graph API audit log. `RequestUri` + `Scopes` + `TargetWorkload` are the key hunting columns. See `…/tables/GraphAPIAuditEvents.md` for column type gotchas (`RequestDuration`, `RequestUri` size). |
-| `OAuthAppInfo` | OAuth app inventory. See `…/tables/OAuthAppInfo.md` — key field is `OAuthAppId`; table is snapshot-based (one row per app per day). |
-| `MessageEvents` | Teams message security events (not email — that's `EmailEvents`). |
-| `CloudStorageAggregatedEvents` | Aggregated Azure storage access; note `DataAggregationStartTime/EndTime` rather than a single `Timestamp`. |
-| `AADSignInEventsBeta` | Deprecated Dec 9, 2025 — replaced by `EntraIdSignInEvents`. Do not use for new queries. |
-| `AADSpnSignInEventsBeta` | Deprecated — replaced by `EntraIdSpnSignInEvents`. Missing `GatewayJA4`, `SessionId`, `UniqueTokenId` compared to the GA table. Do not use for new queries. |
-| `EntraIdSpnSignInEvents` | GA replacement for `AADSpnSignInEventsBeta`. Defender-only (`run_hunting_query`). Covers service principal + managed identity sign-ins. Has `GatewayJA4`, `SessionId`, `UniqueTokenId`. Key columns: `ServicePrincipalName`, `ServicePrincipalId`, `IsManagedIdentity`, `IsConfidentialClient`, `ApplicationId`, `ResourceDisplayName`. |
-| `NetworkAccessTraffic` | Global Secure Access (Entra Internet/Private Access) traffic log. Uses `TimeGenerated` not `Timestamp`. Rich columns: `Action`, `PolicyName`, `RuleName`, `DestinationFqdn`, `DestinationUrl`, `DestinationWebCategories`, `ThreatType`, `ConnectionStatus`, `UserPrincipalName`. Empty if GSA is not deployed or logs are not flowing. |
+| `AlertInfo` / `AlertEvidence` | Normalized alert layer aggregating detections from all Defender products. `AlertInfo` has one row per alert; `AlertEvidence` has one row per entity (file, process, IP, user, etc.) tied to that alert. Join on `AlertId`. Both Defender and Sentinel. |
+| `NetworkAccessTraffic` | Global Secure Access (Entra Internet/Private Access) traffic log. Not present in all tenants. Uses `TimeGenerated`. Key columns: `Action`, `PolicyName`, `DestinationFqdn`, `DestinationWebCategories`, `ThreatType`. |
 
 ## Entra ID / AAD sign-in table family
 
