@@ -42,18 +42,21 @@ You have access to these MCP tools (some conditional on server config):
 
 **Important**: Even when a Sentinel workspace is onboarded to the Defender portal, Sentinel-sourced tables (`SecurityIncident`, `SecurityAlert`, `AAD*`, etc.) return **empty results** via `run_hunting_query` — the Graph API silently filters them due to RBAC or backend routing. Always use `run_sentinel_query` for these tables. They may appear in `get_schema()` listing but that does not mean they are queryable via `run_hunting_query`.   TODO: verify.
 
-## Before writing any query
+## Before writing a KQL query
 
-**For any table you haven't used in this session**, do all of these before writing the real query:
+**For all tables you intend to use**: do BOTH of these **before** writing the real KQL query:
 
 1. `get_schema(table_name="<TableName>")` — get column names, types, and up to 3 sample rows from all available sources in one call
-2. **Read `${CLAUDE_SKILL_DIR}/references/tables/<TableName>.md`**. If it does NOT exist, ask the `xdr-refine` agent to research and write it, first. 
+2. **Read `${CLAUDE_SKILL_DIR}/references/tables/<TableName>.md`**. If it does NOT exist: FIRST ask the `xdr-refine` subagent to research and write it. THEN read its result.
 
-This is especially important for tables with `dynamic` columns (bags of key/value pairs whose keys aren't visible in the schema). Skipping this step leads to queries that look valid but return nothing.
+Why get_schema + read reference?
+- Defender/Sentinel schemas have evolved a lot since your training cutoff.
+- Sentinel tables schemas are tenant-specific - the user controls ingestion.
+- Sentinel is a full SIEM and can carry data from 3rd party sources.
 
 ## Proactively trigger self-improvement of reference docs during work!
 
-**When you discover something surprising** — an unexpected column type, a column whose values are much larger than expected, a field name that differs from what the schema implies, behaviour that contradicts what you'd assume — spawn the `xdr-refine` subagent. It will update the reference docs for you; just compose a short brief of what you have discovered, e.g.:
+**When you discover something surprising** — an unexpected column type, a column whose values are much larger than expected, a field name that differs from what the schema implies, behaviour that contradicts what you'd assume — ask the `xdr-refine` subagent to research it! It will update the reference docs for you; just compose a short brief of what you have discovered, e.g.:
 
 ```
 Agent(subagent_type="xdr-refine", prompt="Table: AuditLogs\nFinding: NetworkAccessTraffic section is misplaced — it belongs in its own table file, not AuditLogs.md.\nEvidence: <query + excerpt>")
