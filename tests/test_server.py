@@ -313,7 +313,7 @@ async def test_get_alltables_defender_only():
 
     text = contents[0].text
     lines = text.splitlines()
-    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen"
+    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen\tSentinelSolution"
     rows = {l.split("\t")[0]: l.split("\t") for l in lines[1:] if l}
     assert rows["AlertInfo"][1] == "yes"
     assert rows["AlertInfo"][2] == "-"
@@ -342,7 +342,7 @@ async def test_get_alltables_both_sources():
 
     text = contents[0].text
     lines = text.splitlines()
-    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen"
+    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen\tSentinelSolution"
     rows = {l.split("\t")[0]: l.split("\t") for l in lines[1:] if l}
 
     assert rows["AlertInfo"][1] == "yes"
@@ -374,7 +374,7 @@ async def test_get_alltables_usage_failure_graceful():
 
     text = contents[0].text
     lines = text.splitlines()
-    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen"
+    assert lines[0] == "Table\tDefender\tSentinel\tSentinelLastSeen\tSentinelSolution"
     rows = {l.split("\t")[0]: l.split("\t") for l in lines[1:] if l and not l.startswith("[")}
     assert rows["AlertInfo"][1] == "yes"
     assert rows["AlertInfo"][2] == "-"   # Sentinel failed → not in sen_tables
