@@ -9,15 +9,17 @@ MCP server for Microsoft Defender Advanced Hunting and Microsoft Sentinel. Enabl
 ## Key Files
 
 ```
-src/mcp_xdr/_config.py         # Constants + _sentinel_workspace_id mutable state (no internal imports)
-src/mcp_xdr/_auth.py           # Azure credential init + token fetch (all azure-identity imports here only)
-src/mcp_xdr/_output.py         # TSV formatting, overflow logic, _append_query_log
+src/mcp_xdr/_config.py         # Constants + _sentinel_workspace_id + _tenant_id mutable state (no internal imports)
+src/mcp_xdr/_auth.py           # Azure credential init + token fetch (all azure-identity imports here only); loads .env via python-dotenv
+src/mcp_xdr/_cache.py          # Generic disk-backed TTL cache; imports only _config
+src/mcp_xdr/_output.py         # TSV formatting, overflow/blank-col notices, _normalize_query, _append_query_log
 src/mcp_xdr/_client.py         # Raw httpx callers: run_hunting_query_raw, run_sentinel_query_raw, _sentinel_result_to_tsv
 src/mcp_xdr/_tools_hunting.py  # run_hunting_query tool + TOOL_DEFINITION
 src/mcp_xdr/_tools_sentinel.py # run_sentinel_query tool + TOOL_DEFINITION
 src/mcp_xdr/_tools_schema.py   # get_schema tool + TOOL_DEFINITION (schema listing + per-table)
 src/mcp_xdr/server.py          # Wire-up only: MCP Server object, tool registry, list_tools, call_tool, main
 tests/test_server.py           # Unit tests: tool schema, overflow, get_schema modes (mocked, no live API calls)
+tests/test_transclusion.py     # Tests for skill @-include transclusion
 pyproject.toml                 # Entry point: mcp-xdr → mcp_xdr.server:main
 HOWTO-ENTRA-APPREG-DELEGATED.md  # Entra ID app registration guide
 ~/.mcp-xdr/logs/queries/       # Daily query logs (YYYY-MM-DD.md)
@@ -27,8 +29,7 @@ HOWTO-ENTRA-APPREG-DELEGATED.md  # Entra ID app registration guide
 
 **Module DAG** (strictly acyclic):
 ```
-_config  ←  _auth, _output  ←  _client  ←  _tools_*  ←  server
-                _cache ↗
+_config  ←  _auth, _output, _cache  ←  _client  ←  _tools_*  ←  server
 ```
 `_cache` imports only `_config`; `_tools_schema` imports `_cache` + `_client`.
 Adding a new Graph API tool: create `_tools_foo.py` (imports `_client`, `_output`, `_config`; exports `TOOL_DEFINITION` + handler), add one import + one entry to `_ALWAYS_TOOLS` in `server.py`. No other files change.
@@ -37,10 +38,10 @@ Adding a new Graph API tool: create `_tools_foo.py` (imports `_client`, `_output
 
 **Tools exposed** (2 permanent + 1 conditional on `SENTINEL_WORKSPACE_ID`):
 - `run_hunting_query` — Graph Security API (`POST /v1.0/security/runHuntingQuery`); TSV output, `[MCP-XDR:OVERFLOW]` line + tmpfile when result > 10 KB.
-- `get_schema` — no args: TSV table list (`Table`, `Defender`, `Sentinel`, `SentinelLastSeen`, `SentinelSolution`); with `table_name`: merged schema (`ColumnName`, `DefenderType`, `SentinelType`) + 3 sample rows per source. Results disk-cached (`~/.mcp-xdr/<tenant>.cache/`). Cache key encodes active sources (`alltables-defsen.tsv`, `schema-<Table>-defsen.txt`).
+- `get_schema` — no args: TSV table list (`Table`, `Defender`, `Sentinel`, `SentinelLastSeen`, `SentinelSolution`); with `table_name`: fixed-width merged schema (`ColumnName`, `DefenderType`, `SentinelType`) + 3 sample rows per source. Results disk-cached (`~/.mcp-xdr/<tenant_id>.cache/`). Cache key encodes active sources: `alltables-def.tsv` / `alltables-defsen.tsv`; `schema-<Table>-def.txt` / `schema-<Table>-defsen.txt`.
 - `run_sentinel_query` — Log Analytics API (`POST api.loganalytics.azure.com/v1/workspaces/{id}/query`); same TSV/overflow format.
 
-**Auth priority** (all need `AZURE_TENANT_ID` + `AZURE_CLIENT_ID`): CertificateCredential → ClientSecretCredential → InteractiveBrowserCredential (browser on first use, DPAPI cache). Graph scope only at `authenticate()` time; Sentinel token acquired lazily to avoid `AADSTS70011`.
+**Auth priority** (all need `AZURE_TENANT_ID` + `AZURE_CLIENT_ID`): CertificateCredential (if `AZURE_CLIENT_CERTIFICATE_PATH` set, optional `AZURE_CLIENT_CERTIFICATE_PASSWORD`) → ClientSecretCredential (if `AZURE_CLIENT_SECRET` set) → InteractiveBrowserCredential (browser on first use, DPAPI-encrypted token cache at `~/.mcp-xdr/auth-record.json`). `_auth.py` calls `load_dotenv()` at import time so a `.env` file in the working directory is supported. Graph scope only at `authenticate()` time; Sentinel token acquired lazily to avoid `AADSTS70011`.
 
 > **Sentinel token scope:** use SP app ID `ca7f3f0b-7d91-482c-8e09-c5d840d0eac5/.default` — the URL alias is not in `servicePrincipalNames`.
 
