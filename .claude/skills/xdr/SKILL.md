@@ -29,18 +29,23 @@ You have access to these MCP tools (some conditional on server config):
 - `run_hunting_query` — execute KQL via the **Microsoft Graph Security API** (`graph.microsoft.com/v1.0/security/runHuntingQuery`); covers all Defender XDR tables plus Sentinel tables when a workspace is onboarded to the unified Defender portal
 - `run_sentinel_query` — execute KQL via the **Log Analytics API** (`api.loganalytics.azure.com`); only present if `SENTINEL_WORKSPACE_ID` is configured
 
+---
+
 ## Which tool to use
 
 | Data you need | Use |
 |---|---|
 | Device*, Email*, Identity*, CloudApp*, AI* (XDR tables) | `run_hunting_query` |
 | EntraIdSignInEvents, EntraIdSpnSignInEvents (GA Entra XDR tables) | `run_hunting_query` |
-| SecurityAlert, SecurityIncident, AAD*, AuditLogs, SigninLogs, SecurityEvent | `run_sentinel_query` |
+| SecurityAlert, SecurityIncident (workspace **onboarded** to Defender portal) | `run_hunting_query` or `run_sentinel_query` — both work |
+| AAD*, AuditLogs, SigninLogs, SecurityEvent | `run_sentinel_query` |
 | CommonSecurityLog, Syslog, custom tables, Auxiliary/Basic logs | `run_sentinel_query` |
 | Workspace **not** onboarded to the Defender portal | `run_sentinel_query` |
 | Data older than 30 days (beyond Defender retention) | `run_sentinel_query` |
 
-**Important**: Even when a Sentinel workspace is onboarded to the Defender portal, Sentinel-sourced tables (`SecurityIncident`, `SecurityAlert`, `AAD*`, etc.) return **empty results** via `run_hunting_query` — the Graph API silently filters them due to RBAC or backend routing. Always use `run_sentinel_query` for these tables. They may appear in `get_schema()` listing but that does not mean they are queryable via `run_hunting_query`.   TODO: verify.
+**`SecurityIncident` / `SecurityAlert` via `run_hunting_query`:** when the Sentinel workspace is onboarded to the unified Defender portal, these tables are queryable via `run_hunting_query` and return real data (verified 2026-05). If the workspace is *not* onboarded, they will be absent or return empty — use `run_sentinel_query` in that case. `AAD*`, `SigninLogs`, and other Azure Monitor diagnostic tables are **not** exposed via the Graph API regardless of onboarding status — always use `run_sentinel_query` for those.
+
+---
 
 ## Before writing a KQL query
 
@@ -54,27 +59,17 @@ Why get_schema + read reference?
 - Sentinel tables schemas are tenant-specific - the user controls ingestion.
 - Sentinel is a full SIEM and can carry data from 3rd party sources.
 
-## Proactively trigger self-improvement of reference docs during work!
-
-**When you discover something surprising** — an unexpected column type, a column whose values are much larger than expected, a field name that differs from what the schema implies, behaviour that contradicts what you'd assume — ask the `xdr-refine` subagent to research it! It will update the reference docs for you; just compose a short brief of what you have discovered, e.g.:
-
-```
-Agent(subagent_type="xdr-refine", prompt="Table: AuditLogs\nFinding: NetworkAccessTraffic section is misplaced — it belongs in its own table file, not AuditLogs.md.\nEvidence: <query + excerpt>")
-```
-
-The subagent fetches live docs, checks the live schema, reconciles with the existing reference file, and rewrites it in isolation.
-
 ---
 
-## Self-improving SKILL.md and multiple reference docs AFTER work
+## Self-improving SKILL.md and reference docs
 
 **This repo is public — never write tenant-specific information into any reference file.** No UPNs, device names, group names, user names, organisation names, or internal naming conventions. Keep all examples generic (e.g. `user@example.com`, `DEVICE-001`).
 
-Examine returned `xdr-refine` responses and consider if something deserves being centrally available in SKILL.md.
+Examine returned `xdr-refine` responses and consider if something deserves being centrally available in `SKILL.md`, `kql-facts.md` or `tenant.local.md`.
 
 ---
 
-!`cat ${CLAUDE_SKILL_DIR}/references/kql-facts.md`
+@references/kql-facts.md
 
 ---
 

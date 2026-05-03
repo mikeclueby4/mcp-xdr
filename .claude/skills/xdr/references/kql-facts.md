@@ -1,4 +1,4 @@
-## KQL facts for Defender Advanced Hunting
+## KQL facts for Defender Advanced Hunting and Sentinel Log Analytics
 transclusion-sentinel: KQLFACTS-7F3A
 
 
@@ -14,8 +14,7 @@ IPv4 addresses are increasingly logged in IPv6-mapped form: `::ffff:1.2.3.4`. A 
 // Single IP
 | where ipv6_is_match(IPAddress, "1.2.3.4")
 
-// CIDR range — netmask is IPv6 prefix length, NOT the IPv4 prefix length
-// Convert: IPv6 prefix = IPv4 prefix + 96
+// CIDR range — netmask is IPv6 prefix length, NOT the IPv4 prefix length. Add 96.
 //   /8  → 104,  /16 → 112,  /24 → 120,  /32 → 128
 // Example: 10.0.0.0/8 in IPv4 → ipv6_is_match(IP, "10.0.0.0", 104)
 | where ipv6_is_match(IPAddress, "10.0.0.0", 104)
@@ -69,7 +68,7 @@ If you need the short resource name as a display column, extract it from `_Resou
 
 These diverge from standard ADX/KQL and will silently produce parse errors or wrong results:
 
-**No ternary operator** — `condition ? a : b` is not supported. Use `iff()`:
+#### **No ternary operator** — `condition ? a : b` is not supported. Use `iff()`:
 ```kql
 // WRONG — parse error
 | extend Label = IsBlocked ? "Blocked" : "Active"
@@ -77,7 +76,9 @@ These diverge from standard ADX/KQL and will silently produce parse errors or wr
 | extend Label = iff(IsBlocked, "Blocked", "Active")
 ```
 
-**`let` + `union`/`join` — works in both Defender and Sentinel** — `let` subqueries piped into `union` or `join` are fully supported (verified 2026-04 against both the Graph Security API and Log Analytics):
+#### **`let` + `union`/`join` — works in both Defender and Sentinel** 
+
+`let` subqueries piped into `union` or `join` are fully supported (verified 2026-04 against both the Graph Security API and Log Analytics):
 ```kql
 // Works fine in Defender
 let Baseline = TableA | where Timestamp between (ago(30d) .. ago(3d));
@@ -102,25 +103,36 @@ TableA
 | extend SpikeRatio = iff(todouble(Baseline) > 0, round(todouble(Recent) / todouble(Baseline), 2), todouble(999))
 ```
 
-**Double-serialized dynamic columns** — some columns are declared `dynamic` in the KQL schema but stored as a JSON-encoded string at rest. Direct property access returns null; wrap with `parse_json(tostring())` first. Confirmed examples: `EntraIdSignInEvents.ConditionalAccessPolicies`, `EntraIdSignInEvents.AuthenticationProcessingDetails`, `EntraIdSignInEvents.LogonType`. Diagnose with `gettype()` (returns `"string"`) or `bag_keys()` (compile error: "argument must be a dynamic").
+#### **Dynamic column access — check `getschema` ColumnType first**
+
+`get_schema(table_name=...)` (or `TableName | getschema`) is the ground truth. ColumnType predicts access pattern exactly:
+
+| ColumnType | Access pattern | Symptom if wrong |
+|---|---|---|
+| `string` | `parse_json(tostring(col))` before any property access | direct `col.Field` silently returns null; `bag_keys(col)` compile error |
+| `dynamic` | direct `col.Field` access | `parse_json(tostring())` works but wastes CPU |
 
 ```kql
-// WRONG — returns null for string-at-rest columns
-| extend val = ConditionalAccessPolicies[0].id
-// RIGHT
-| extend parsed = parse_json(tostring(ConditionalAccessPolicies))
-| extend val = tostring(parsed[0].id)
+// string-typed column — must parse first
+| extend parsed = parse_json(tostring(col))
+| extend val = parsed[0].id
+
+// dynamic-typed column — direct access works
+| extend val = col.Field
 ```
 
-**`NodeProperties` (ExposureGraphNodes) — single-key wrapper, not double-serialized.** `gettype()` = `"dictionary"` (genuine native dynamic), but all data is nested under a single top-level key `rawData`. Direct `.rawData.field` access works; `bag_keys()` returns `["rawData"]`. No `parse_json(tostring())` needed:
-```kql
-// WRONG — returns null (no top-level field named "deviceName")
-| extend name = NodeProperties.deviceName
-// RIGHT — payload is always one level deeper
-| extend name = NodeProperties.rawData.deviceName
-```
+**SentinelType can misreport** — use DefenderType (from `get_schema`) as the authoritative signal. A legacy Log Analytics connector can declare a column `dynamic` in its schema even when the physical data is a JSON-encoded string.
 
-**`ReportId` uniqueness differs by table family** — two completely different semantics, same column name:
+**`@odata.type` wrapper (Graph API only):** native `dynamic` columns get annotated with `@odata.type: "#microsoft.graph.security.dynamicColumnValue"` via `run_hunting_query`. This is cosmetic — ignore it, direct access still works. Does not appear via `run_sentinel_query`.
+
+**`col.Field` returns null on a `dynamic` column?** Run `bag_keys(col)`. If the only key is `"rawData"`, all payload is nested one level deeper — use `col.rawData.Field`.
+
+**Array-typed dynamic columns:** `mv-expand` first, then check `gettype(elem)` on a sample. `"dictionary"` → direct `elem.Field`; `"string"` → `parse_json(tostring(elem)).Field`.
+
+
+#### **`ReportId` uniqueness differs by table family** 
+
+Two completely different semantics, same column name:
 
 | Table family | Type | Unique? | Join key |
 |---|---|---|---|
@@ -187,33 +199,22 @@ When a query hits the `[MCP-XDR:OVERFLOW]` sentinel, the full result is in a tmp
 
 ```bash
 # Count distinct values in column 1 from an overflow file
-cut -f1 <path>.tsv | sort | uniq -c | sort -rn | head -30
+cut -f1 /tmp/baz.tsv | sort | uniq -c | sort -rn | head -30
 
 # Search for a specific value in an overflow result
-rg -i "keyword" <path>.tsv | head -20
+rg -i "keyword" C/Users/foo/AppData/Local/Temp/bar.tsv | head -20
 
 # Extract specific columns (e.g. 1 and 3) with optional filter
-awk -F'\t' 'NR==1 || $1 ~ /pattern/ {print $1, $3}' <path>.tsv
+awk -F'\t' 'NR==1 || $1 ~ /pattern/ {print $1, $3}' foobar.tsv
 ```
 
 Remember that Bash is Bash, even on Windows. If you are given a Windows path with backslashes, convert to e.g. "/C/Path/to/file.ext" with forward slashes, or Bash errors.
 
-For more complex analysis, write a reusable named Python script in `.claude/skills/xdr/references/scripts/`.
+**4. Delegate exploratory tool calling and/or large resultset ingestion to a Haiku subagent**
 
-**4. Delegate exploratory tool calling to a Haiku subagent**
+When you can reasonably infer that something may take many tool calls, delegate to a general-purpose `model="haiku"` with `effort=medium` to investigate the chain / relationship you're looking for. 
 
-When you can reasonably infer that something may take many tool calls, delegate to a general-purpose `model="haiku"` with `effort=medium` to investigate the chain / relationship you're looking for. The agent starts with tiny context, making the turns cheap. "See this Defender XDR query result file <resultfile|tmpfile>. I need to understand <...> so that I can <...>" is a good starting pattern.
-
-**5. Delegate large result set non-deterministic summarization to a Haiku subagent**
-
-For large result sets where deterministic Bash won't do the job, spawn a subagent to ingest and summarize the output. Always use `model="haiku"` for these — the task is pure reading/summarization, not reasoning, and Haiku is faster and cheaper for it. Choose `effort="low|medium"` appropriate for the task, don't let it inherit yours.
-```
-Agent(model="haiku", prompt="Read the TSV at <path>. Summarize: distinct values in
-col A (entity names), top 10 by count in col B, flag any values that look unusual
-or non-standard.")
-```
-
-**6. Prefer one wide summarize over multiple narrow queries**
+**5. Prefer one wide summarize over multiple narrow queries**
 
 Run one broad query that captures all variants ranked by volume, then drill into specific findings with `where` filters. Resist the urge to issue a separate query per hypothesis — each query costs context and round-trip time.
 

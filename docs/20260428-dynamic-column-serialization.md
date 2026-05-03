@@ -20,7 +20,7 @@ TableName | getschema | where ColumnName == "TheColumn"
 
 ## The Master Table
 
-`| getschema` and `get_schema()` DefenderType agree perfectly on all tested columns — they both run `| getschema` against the same Defender API. SentinelType comes from a separate Log Analytics schema registry and **can differ** from DefenderType; when it does, DefenderType is ground truth for runtime behaviour.
+`| getschema` and `get_schema()` DefenderType agree perfectly on all tested columns — they both run `| getschema` against the same Defender API. SentinelType comes from a separate Log Analytics schema registry and **can differ** from DefenderType - this can always occur in a tenant, as Sentinel schemas are user-controlled.
 
 | Column | Table | DefenderType | SentinelType | `@odata.type` wrapper | Direct access |
 |---|---|---|---|---|---|
