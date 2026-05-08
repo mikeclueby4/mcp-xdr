@@ -4,14 +4,14 @@
 Called `get_hunting_schema` first. Key columns: `Timestamp`, `IPAddress`, `ErrorCode` (0 = success), `AccountUpn`, `AccountDisplayName`, `Application`, `Country`, `City`, `DeviceName`, `ClientAppUsed`, `RiskLevelDuringSignIn`.
 
 ## Sample (take 3)
-Ran 3-row sample. Confirmed IPs stored in **mixed formats** — native IPv4 (`78.82.51.190`) and native IPv6 (`2405:201:...`). Validates the need for `ipv6_is_match()`.
+Ran 3-row sample. Confirmed IPs stored in **mixed formats** — native IPv4 (`78.82.51.190`) and native IPv6 (`2405:201:...`). Validates the need for `IPV6_MATCH()`.
 
 ## Final query
 ```kql
 AADSignInEventsBeta
 | where Timestamp >= ago(7d)
-| where ipv6_is_match(IPAddress, "203.0.113.42")
-    or ipv6_is_match(IPAddress, "::ffff:203.0.113.42")
+| where IPV6_MATCH(IPAddress, "203.0.113.42")
+    or IPV6_MATCH(IPAddress, "::ffff:203.0.113.42")
 | project
     Timestamp,
     AccountUpn,

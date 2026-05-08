@@ -8,16 +8,18 @@ transclusion-sentinel: KQLFACTS-7F3A
 
 IPv4 addresses are increasingly logged in IPv6-mapped form: `::ffff:1.2.3.4`. A plain `IPAddress == "1.2.3.4"` will silently miss these rows — no error, just wrong (incomplete) results.
 
-**Always use `ipv6_is_match()`:**
+**Always use `IPV6_MATCH()`** (injected automatically by the MCP server into every query):
 
 ```kql
-// Single IP
-| where ipv6_is_match(IPAddress, "1.2.3.4")
+// Single IP — exact match, two-arg form (prefix_mask defaults to 128)
+| where IPV6_MATCH(IPAddress, "1.2.3.4")
 
-// CIDR range — netmask is IPv6 prefix length, NOT the IPv4 prefix length. Add 96.
-//   /8  → 104,  /16 → 112,  /24 → 120,  /32 → 128
-// Example: 10.0.0.0/8 in IPv4 → ipv6_is_match(IP, "10.0.0.0", 104)
-| where ipv6_is_match(IPAddress, "10.0.0.0", 104)
+// CIDR range — the prefix arg is ALWAYS an IPv6 prefix (0–128), even when both
+// operands are IPv4 strings. IPv4 strings are first canonicalized to ::ffff:a.b.c.d,
+// so the IPv4 octets live in IPv6 bits 96–127. To express an IPv4 /N range, pass 96+N:
+//   IPv4 /8  → prefix 104,  /16 → 112,  /24 → 120,  /32 → 128
+// Example: 10.0.0.0/8 → IPV6_MATCH(IP, "10.0.0.0", 104)
+| where IPV6_MATCH(IPAddress, "10.0.0.0", 104)
 
 // Joining two tables on IP — normalize both sides with parse_ipv6() first,
 // then join on the canonical string. Works in both Defender and Sentinel.
@@ -33,11 +35,11 @@ TableA
 //   "::ffff:1.2.3.4" → "0000:0000:0000:0000:0000:ffff:0102:0304"  (same!)
 // So both representations of the same address produce the same key — safe to join on.
 
-// For equality checks in where clauses, ipv6_is_match() remains cleaner:
-| where ipv6_is_match(IPAddress, "1.2.3.4")
+// For equality checks in where clauses, IPV6_MATCH() remains cleaner:
+| where IPV6_MATCH(IPAddress, "1.2.3.4")
 ```
 
-When joining two tables on IPs, always normalize both sides with `parse_ipv6()` first — it handles IPv4, IPv6, and IPv6-mapped IPv4 (`::ffff:x.x.x.x`) and collapses them to the same canonical string. `ipv6_compare(a, b) == 0` is an alternative equality test. For `where` filters, `ipv6_is_match()` is the most readable option.
+When joining two tables on IPs, always normalize both sides with `parse_ipv6()` first — it handles IPv4, IPv6, and IPv6-mapped IPv4 (`::ffff:x.x.x.x`) and collapses them to the same canonical string. `ipv6_compare(a, b) == 0` is an alternative equality test. For `where` filters, `IPV6_MATCH()` is the most readable option. `ipv4_is_match()` also works for IPv4-only cases and handles both dotted-decimal and `::ffff:x.x.x.x` forms. `RemoteIPType == "FourToSixMapping"` can identify rows affected by this encoding.
 
 ---
 
@@ -105,12 +107,25 @@ TableA
 
 #### **Dynamic column access — check `getschema` ColumnType first**
 
-`get_schema(table_name=...)` (or `TableName | getschema`) is the ground truth. ColumnType predicts access pattern exactly:
+`get_schema(table_name=...)` (or `TableName | getschema`) is the ground truth. ColumnType predicts top-level access pattern exactly:
 
 | ColumnType | Access pattern | Symptom if wrong |
 |---|---|---|
 | `string` | `parse_json(tostring(col))` before any property access | direct `col.Field` silently returns null; `bag_keys(col)` compile error |
-| `dynamic` | direct `col.Field` access | `parse_json(tostring())` works but wastes CPU |
+| `dynamic` | direct `col.Field` access | `parse_json(col)` is a no-op (returns dynamic as-is); use `parse_json(tostring(col))` if you really mean to re-parse |
+
+**`get_schema` Notes vocabulary** — the Notes column surfaces *shape facts* from a sample probe, not access recipes. Translate to your access pattern based on intent:
+
+| Notes value | What it means | Implied access |
+|---|---|---|
+| `dict` | top-level dictionary | direct `col.Field` (dynamic) or `parse_json` first (string) |
+| `dict, bag_keys=["X"]` | single-key wrapper — payload nested under one key | `col.X.Field` (e.g. `NodeProperties.rawData.Field`) |
+| `array<dict>` | array of dictionaries | `mv-apply ... on (...)` if you'll fold back to source row; `mv-expand` if you want per-element rows |
+| `array<string>` | array of typed-string elements (could be plain scalars OR JSON-encoded objects — probe can't tell) | inspect first char with `substring(tostring(elem),0,1)`: `{`/`[` → `parse_json(tostring(elem))`, otherwise `tostring(elem)` |
+| `array<long>` / `array<bool>` etc. | array of typed scalars | `tostring(elem)` or arithmetic directly after `mv-expand` |
+| `array<X mixed>` | heterogeneous element types | probe `gettype(elem)` before assuming a uniform pattern |
+| `string-encoded <shape>` | DefenderType=string, contents parse to that shape | `parse_json(tostring(col))` first, then access per `<shape>` row above |
+| `string-encoded JSON` | DefenderType=string with JSON content but no specific shape detected | `parse_json(tostring(col))` first |
 
 ```kql
 // string-typed column — must parse first
@@ -125,9 +140,50 @@ TableA
 
 **`@odata.type` wrapper (Graph API only):** native `dynamic` columns get annotated with `@odata.type: "#microsoft.graph.security.dynamicColumnValue"` via `run_hunting_query`. This is cosmetic — ignore it, direct access still works. Does not appear via `run_sentinel_query`.
 
-**`col.Field` returns null on a `dynamic` column?** Run `bag_keys(col)`. If the only key is `"rawData"`, all payload is nested one level deeper — use `col.rawData.Field`.
+**`col.Field` returns null on a `dynamic` column?** Two diagnostic steps:
+1. `bag_keys(col)` — if the only key is `"rawData"`, payload is nested one level deeper, use `col.rawData.Field`
+2. `gettype(col.Field)` — if `"string"`, the sub-field itself is a JSON-encoded string and needs a second parse: `parse_json(tostring(col.Field)).InnerField`. This is the **nested-string-inside-dynamic** pattern. Real cases: `CloudAppEvents.RawEventData.{AppAccessContext, PolicyMatchInfo, SensitiveInfoTypeData}`; `ThreatIntelIndicators.Data.labels[*]` (MITRE TTPs); the `answers` field inside `DeviceNetworkEvents.AdditionalFields` for `DnsConnectionInspected`.
 
-**Array-typed dynamic columns:** `mv-expand` first, then check `gettype(elem)` on a sample. `"dictionary"` → direct `elem.Field`; `"string"` → `parse_json(tostring(elem)).Field`.
+#### **`mv-apply` vs `mv-expand` for array columns**
+
+Both unroll a dynamic array, but with very different cost models:
+
+| Operator | Effect on row count | When to use |
+|---|---|---|
+| `mv-expand T = arr` | **Multiplies** — one output row per array element | You actually want one row per element (e.g. listing every member of every group, every tag of every entity). |
+| `mv-apply T = arr on (...)` | **Preserves** — one output row in, one out; sub-pipeline aggregates the array into scalar columns | You want to extract specific values *from* the array but keep one row per source event. |
+
+**Rule of thumb:** if your next step after `mv-expand` is `summarize ... by SomeRowKey` to fold the rows back together, you're paying for the unroll twice — switch to `mv-apply`. The summarize moves *inside* the `on (...)` clause and runs per-row.
+
+The sub-pipeline inside `on (...)` accepts most KQL operators (`where`, `extend`, `project`, `summarize`, `take`). `take_anyif(value, predicate)` inside a summarize is the canonical pattern for "extract one specific element from a heterogeneous typed array":
+
+```kql
+// Pattern: extract Role name + User UPN from AuditLogs.TargetResources (typed-object array)
+| extend TargetArr = parse_json(tostring(TargetResources))
+| mv-apply T = TargetArr on (
+    summarize
+        RoleName  = take_anyif(tostring(T.displayName),       tostring(T.type) == "Role"),
+        TargetUPN = take_anyif(tostring(T.userPrincipalName), tostring(T.type) == "User")
+)
+```
+
+The mv-expand-then-pivot equivalent would be ~3× the rows, then `summarize ... by CorrelationId` to collapse — same result, more I/O.
+
+**Use `mv-expand` when** you genuinely want per-element rows: enumerating every member of every group, listing every URL clicked per email, exploding `AdditionalFields` arrays for full-detail forensic review.
+
+**Array-typed dynamic columns (mv-expand path):** check `gettype(elem)` on a sample:
+
+| `gettype(elem)` | Element shape | Access pattern |
+|---|---|---|
+| `"dictionary"` | Native dict (most common) | direct `elem.Field` |
+| `"string"` starting with `{` or `[` | JSON-encoded object/array (rare) | `parse_json(tostring(elem)).Field` |
+| `"string"` plain text | Plain string scalar (e.g. tag list) | just `tostring(elem)` — `parse_json` would no-op since the string isn't JSON |
+
+The two `"string"` cases share the same `gettype()` signal — disambiguate by inspecting whether the element starts with `{`/`[`. Calling `parse_json(tostring(elem))` on a plain string scalar isn't an error (it returns dynamic-wrapped scalar) but is misleading and wasteful.
+
+**Why `tostring()` inside `parse_json()`?** Per the official `parse_json()` doc: *"If `json` is of type `dynamic`, its value is used as-is."* So `parse_json()` only parses values whose declared KQL type is `string`. After `mv-expand`, after a first `parse_json()`, or on any pre-typed `dynamic` column, the argument's declared type is `dynamic` — without `tostring()` the parse silently no-ops. The defensive form `parse_json(tostring(col))` is always correct: redundant on a top-level `string` column, mandatory for second-pass parses of nested-encoded values.
+
+**TSV sample-row trap:** the `Sample rows` view in `get_schema` renders native dynamic dictionaries as JSON text — visually identical to a string-encoded JSON column. **Never infer column type from sample appearance.** Trust `DefenderType` from the schema header, or run `gettype()` directly. (Notable case: `ThreatIntelIndicators.Data` and `AdditionalFields` are native dynamic in both Defender and Sentinel despite looking like JSON strings in the TSV.)
 
 
 #### **`ReportId` uniqueness differs by table family** 
@@ -237,9 +293,9 @@ TableName
 
 ### Cross-platformness: Windows, Mac, Linux
 
-For endpoint-sourced tables and columns: **keep in mind that MDE runs on Windows+Mac+Linux**! 
-  - Looking for ".exe" is Windows-only. 
-  - Network metadata can be populated differently, e.g. only numeric IPs vs also domain names. 
+When formulating KQL for, and reading query results from, endpoint-sourced tables and columns: **keep in mind that MDE runs on Windows+Mac+Linux**! 
+  - Looking for executables with ".exe" is Windows-only. Find the correct **non-.exe** binary name for Mac/Linux!
+  - Network metadata can be populated differently, e.g. only numeric IPs vs also domain names. Importantly, Defender on MacOS likes ipv4-as-v6 notation!
 
 Example query ideas: 
   - Get samples of file paths with forward slashes vs backslashes.

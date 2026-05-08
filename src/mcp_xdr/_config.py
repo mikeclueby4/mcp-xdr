@@ -30,6 +30,19 @@ _logs_queries_dir = xdr_dir / "logs" / "queries"
 SCHEMA_LIST_CACHE_TTL = timedelta(hours=24)
 SCHEMA_TABLE_CACHE_TTL = timedelta(hours=24)
 
+# get_schema(table_name) deterministic-fact probes:
+# Sample size for the cell-shape probe — small is fine, shapes converge quickly.
+PROBE_SAMPLE_ROWS = 200
+# Sample size for the enum-cardinality + value probes. Larger than PROBE_SAMPLE_ROWS
+# so high-volume tables (DeviceEvents has 80+ distinct ActionTypes) don't get
+# undersampled and falsely classified as low-cardinality. dcount() uses HLL
+# under the hood, so the cost stays bounded.
+ENUM_PROBE_SAMPLE_ROWS = 5000
+# Max distinct values for enum-style columns; above this we redact to "high-cardinality".
+ENUM_PROBE_LIMIT = 30
+# Max chars per Notes cell (LLM-readable; not for visual alignment).
+NOTES_CELL_MAX_CHARS = 1000
+
 # Mutable at runtime: set from env at startup, overridable by tests.
 _sentinel_workspace_id: str | None = os.environ.get("SENTINEL_WORKSPACE_ID") or None
 _tenant_id: str | None = os.environ.get("AZURE_TENANT_ID") or None

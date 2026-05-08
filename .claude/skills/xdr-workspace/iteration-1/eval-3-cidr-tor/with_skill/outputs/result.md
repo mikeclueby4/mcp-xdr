@@ -4,7 +4,7 @@
 ```kql
 DeviceNetworkEvents
 | where Timestamp > ago(14d)
-| where ipv6_is_match(RemoteIP, "185.220.0.0", 112)
+| where IPV6_MATCH(RemoteIP, "185.220.0.0", 112)
 | summarize
     ConnectionCount = count(),
     FirstSeen = min(Timestamp),
@@ -17,7 +17,7 @@ DeviceNetworkEvents
 ```
 
 ## Key decisions
-- `ipv6_is_match(RemoteIP, "185.220.0.0", 112)` — prefix 112 = IPv6 equivalent of /16 (128 - 32 + 16 = 112)
+- `IPV6_MATCH(RemoteIP, "185.220.0.0", 112)` — prefix 112 = IPv6 equivalent of /16 (128 - 32 + 16 = 112)
 - 14-day time window as requested
 - summarize rather than raw rows
 

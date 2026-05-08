@@ -4,13 +4,13 @@
     {
       "id": 1,
       "prompt": "Show me all sign-ins from IP 203.0.113.42 in the last 7 days, including whether they succeeded.",
-      "expected_output": "A KQL query using ipv6_is_match() for the IP comparison (not == string equality), querying EntraIdSignInEvents or AADSignInEventsBeta, with a 7-day time filter and relevant projected columns.",
+      "expected_output": "A KQL query using IPV6_MATCH() for the IP comparison (not == string equality), querying EntraIdSignInEvents or AADSignInEventsBeta, with a 7-day time filter and relevant projected columns.",
       "assertions": [
         {
           "name": "uses_ipv6_is_match_not_equals",
-          "description": "Query uses ipv6_is_match() for IP comparison, not == or contains or has",
+          "description": "Query uses IPV6_MATCH() for IP comparison, not == or contains or has",
           "type": "string_match",
-          "pattern": "ipv6_is_match"
+          "pattern": "IPV6_MATCH"
         },
         {
           "name": "has_time_filter",
@@ -55,13 +55,13 @@
     {
       "id": 3,
       "prompt": "Find all devices that have made network connections to any IP in the 185.220.0.0/16 range (known Tor exit node range) in the past 2 weeks.",
-      "expected_output": "A KQL query against DeviceNetworkEvents using ipv6_is_match with the CIDR range, a 14-day time filter, and appropriate projection/summarization. Must NOT use string comparison for the IP range.",
+      "expected_output": "A KQL query against DeviceNetworkEvents using IPV6_MATCH with the CIDR range, a 14-day time filter, and appropriate projection/summarization. Must NOT use string comparison for the IP range.",
       "assertions": [
         {
           "name": "uses_ipv6_is_match_for_cidr",
-          "description": "Query uses ipv6_is_match for CIDR range comparison, not startswith or contains",
+          "description": "Query uses IPV6_MATCH for CIDR range comparison, not startswith or contains",
           "type": "string_match",
-          "pattern": "ipv6_is_match"
+          "pattern": "IPV6_MATCH"
         },
         {
           "name": "targets_network_table",

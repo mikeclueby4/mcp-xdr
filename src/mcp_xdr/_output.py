@@ -33,13 +33,28 @@ def _sanitise(value: str) -> str:
     return value.replace("\t", " ")
 
 
+# Precede the query with a guard against LLM-footgun IPv4 CIDR masks in ipv6_is_match() calls. 
+# All documentation + get_schema examples use IPV6_MATCH instead of ipv6_is_match for this reason.
+_IPV6_MATCH_PREAMBLE = (
+    "let IPV6_MATCH = (addr: string, prefix: string, prefix_mask: int = 128) {\n"
+    "    assert(prefix_mask > 32,"
+    ' "IPV6_MATCH: prefix_mask in 0-32 is IPv4 range — did you mean ipv4_is_match()? For IPv4 CIDRs use prefix_mask+96 (e.g. /24 → 120).")\n'
+    "    and ipv6_is_match(addr, prefix, prefix_mask)\n"
+    "};\n"
+)
+
+
 def _normalize_query(query: str) -> str:
-    """Replace blank/whitespace-only lines with a comment.
+    """Prepend IPV6_MATCH guard and replace blank/whitespace-only lines with a comment.
+
+    IPV6_MATCH wraps ipv6_is_match() with an assert that fires if prefix_mask is
+    in 0-32 (the IPv4 footgun range — those masks wildcard the entire IPv4 portion).
 
     The Defender portal web UI rejects blank lines; a '//' comment is
     syntactically valid for both the Graph and Log Analytics APIs.
     """
-    return re.sub(r"^[ \t]*$", "//", query, flags=re.MULTILINE)
+    normalized = re.sub(r"^[ \t]*$", "//", query, flags=re.MULTILINE)
+    return _IPV6_MATCH_PREAMBLE + normalized
 
 
 def _blank_column_notice(col_names: list[str], data_rows: list[str]) -> str:

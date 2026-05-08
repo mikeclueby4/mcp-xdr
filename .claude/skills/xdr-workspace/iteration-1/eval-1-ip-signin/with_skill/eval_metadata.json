@@ -4,9 +4,9 @@
   "prompt": "Show me all sign-ins from IP 203.0.113.42 in the last 7 days, including whether they succeeded.",
   "assertions": [
     {
-      "text": "Query uses ipv6_is_match() for IP comparison, not == or contains or has",
+      "text": "Query uses IPV6_MATCH() for IP comparison, not == or contains or has",
       "passed": true,
-      "evidence": "Query uses ipv6_is_match(IPAddress, \"203.0.113.42\") — correct"
+      "evidence": "Query uses IPV6_MATCH(IPAddress, \"203.0.113.42\") — correct"
     },
     {
       "text": "Query includes a time filter (ago(7d) or similar)",

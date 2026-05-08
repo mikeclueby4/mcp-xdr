@@ -4,9 +4,9 @@
   "prompt": "Find all devices that have made network connections to any IP in the 185.220.0.0/16 range (known Tor exit node range) in the past 2 weeks.",
   "assertions": [
     {
-      "text": "Query uses ipv6_is_match for CIDR range comparison, not startswith or contains",
+      "text": "Query uses IPV6_MATCH for CIDR range comparison, not startswith or contains",
       "passed": true,
-      "evidence": "ipv6_is_match(RemoteIP, \"185.220.0.0\", 112) — prefix 112 correctly maps IPv4 /16 to IPv6"
+      "evidence": "IPV6_MATCH(RemoteIP, \"185.220.0.0\", 112) — prefix 112 correctly maps IPv4 /16 to IPv6"
     },
     {
       "text": "Query uses DeviceNetworkEvents",

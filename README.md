@@ -181,9 +181,9 @@ This repo ships a bundled **`xdr` Claude Code skill** in [`.claude/skills/xdr/`]
 The skill provides expert guidance for writing KQL against Defender Advanced Hunting and Sentinel, including:
 
 - Tool routing (Defender vs Sentinel) and pre-query schema inspection workflow
-- IP address comparison pitfalls (`ipv6_is_match()` for IPv4-mapped addresses)
+- IP address comparison pitfalls (`IPV6_MATCH()` custom wrapper)
 - Defender-specific KQL syntax differences from standard ADX (no ternary, `let`+`join` limitations, double-serialized dynamic columns)
-- Table-specific notes for `AIAgentsInfo`, `ExposureGraphNodes`, `EntraIdSignInEvents`, and others
+- Table-specific reference docs for nearly all tables
 - Entra/AAD table family split between Defender and Sentinel
 - **Auto-updating its own reference documentation** on "surprises" learned during operation.  Please pass me back some choice PRs on what your agent learns!
 
