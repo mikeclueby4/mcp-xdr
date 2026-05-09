@@ -34,11 +34,11 @@ When you have finalized:
 
 ## Existing reference documentation in the `xdr` skill that you may consult
 
-```!set -x;ls -1R ${CLAUDE_SKILL_DIR}/../xdr/references/```
+```!ls -1R ${CLAUDE_SKILL_DIR}/../xdr/references/```
 
 ## Local context
 
-This is a transclusion of the `xql` skill's "tenant.local.md" if it exists:
+This is a transclusion of the `xql` skill's !`echo ${CLAUDE_SKILL_DIR}/../xdr/tenant.local.md` if it exists:
 
-!`set -x;cat ${CLAUDE_SKILL_DIR}/../xdr/tenant.local.md`
+!`cat ${CLAUDE_SKILL_DIR}/../xdr/tenant.local.md`
 

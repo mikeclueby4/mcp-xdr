@@ -52,7 +52,8 @@ You have access to these MCP tools (some conditional on server config):
 **For all tables you intend to use**: do BOTH of these **before** writing the real KQL query:
 
 1. `get_schema(table_name="<TableName>")` — get column names, types, and up to 3 sample rows from all available sources in one call
-2. **Read `${CLAUDE_SKILL_DIR}/references/tables/<TableName>.md`**. If it does NOT exist: FIRST ask the `xdr-refine` subagent to research and write it. THEN read its result.
+2. **Read `${CLAUDE_SKILL_DIR}/references/tables/<TableName>.md`**. Note: `references/` is **below the xdr skill folder**.
+3. If the reference doc for the table does NOT exist: FIRST ask the `xdr-refine` subagent to research and write it. THEN read its result.
 
 Why get_schema + read reference?
 - Defender/Sentinel schemas have evolved a lot since your training cutoff.
@@ -82,6 +83,8 @@ When a user describes a problem rather than naming a table, read the relevant pl
 | `…/investigations/connectivity.md` | User reports `ERR_CONNECTION_TIMED_OUT`, site unreachable, intermittent web access, "works from one location but not another", browser connectivity failures on a specific device |
 | `…/investigations/external-ti-apis.md` | Checking whether an IP, domain, or URL appears in external reputation/TI feeds; "is this IP known bad?"; "what ASN/country is this?"; "is this domain flagged?"; quick spot-check without querying Defender/Sentinel — covers keyless Tier 1 services and keyed Tier 2 services |
 | `…/investigations/mcp-servers.md` | Inventorying AI/MCP plugins in use across endpoints; "what MCP servers are people using?"; "is anyone using foo-tool with Claude?"; detecting AI tool integrations via `DeviceProcessEvents` and `DeviceNetworkEvents`. |
+| `…/investigations/uptime-as-patch-proxy.md` | "When did this server last reboot?"; "how stale is our Windows patching?"; "which servers haven't rebooted in N days?"; fleet-wide patch-staleness floor without WSUS/SCCM access. |
+| `…/investigations/device-health-compliance-drift.md` | Fleet health snapshot: Defender AV versions, real-time protection and behavior monitoring state, Intune compliance/managed state, DLP config validity, offline duration. "Which devices have real-time protection off?"; "show me our compliance posture"; "which devices are seasonally offline?"; "what Defender version is the fleet running?"; "are all workstations Intune-compliant?". |
 
 ---
 

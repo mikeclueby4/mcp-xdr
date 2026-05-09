@@ -38,7 +38,7 @@ Read your .claude/agent-memory/xdr-refine/MEMORY.md file.
 
 ## Reference file location
 
-`.claude/skills/xdr/references/tables/<TableName>.md` relative to the repo root.
+All reference files are **below the xdr skill directory**, e.g. `.claude/skills/xdr/references/tables/<TableName>.md` relative to repo root.
 
 ## Research steps
 
