@@ -130,6 +130,10 @@ MicrosoftPurviewInformationProtection
 | sort by Events desc
 ```
 
+## Docs
+
+Official Defender XDR docs URL (`advanced-hunting-microsoftpurviewinformationprotection-table`) returns 404 (2026-04). Use Azure Monitor reference: `https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/microsoftpurviewinformationprotection`.
+
 ## Notes
 
 - `SensitivityLabeledFileOpened` and `SensitivityLabeledFileRenamed` are very high-volume background telemetry (file tracking, not label change events). Exclude these when hunting for label lifecycle changes.

@@ -23,7 +23,7 @@ Note: `ComponentVersion` is blank for `Processor` rows. BIOS version lives in `C
 
 ## AdditionalFields
 
-Native dynamic (`bag_keys()` works directly — no `parse_json()` needed). The `@odata.type` wrapper key is present in raw rows but is excluded from `bag_keys()` output. Type-annotation sibling keys (e.g. `ThreadsCount@odata.type`) also appear — ignore them when iterating keys.
+Native dynamic (`bag_keys()` works directly — no `parse_json()` needed). The `@odata.type` wrapper key is present in raw rows but is excluded from `bag_keys()` output. Type-annotation sibling keys (e.g. `ThreadsCount@odata.type: "#Int64"`) are present as separate bag entries — `bag_keys()` **does** return them; the `@odata.type` root wrapper is the only key excluded. Ignore annotation siblings when iterating keys.
 
 ```kql
 // Direct property access works

@@ -24,6 +24,9 @@ The Defender parsed result has an `@odata.type` wrapper key but property access 
 
 Pre-filter with `AdditionalFields has "keyword"` before `parse_json()` for high-volume ActionTypes — bloom filter is cheap.
 
+### `sample` is a reserved word in KQL — avoid as alias
+`summarize sample=any(col)` fails: `"Missing expression: If the keyword 'sample' is intended to be part of an expression it needs to be bracketted as ['sample']"`. Use any other alias (`AF`, `Val`, `Ex`, etc.).
+
 ### ReportId is a local counter, not globally unique
 `ReportId` is `long`. For cross-table joins, always use the composite `ReportId + DeviceName + Timestamp`. See kql-facts.md.
 

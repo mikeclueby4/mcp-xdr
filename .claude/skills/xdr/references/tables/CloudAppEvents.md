@@ -181,6 +181,7 @@ Other: `Search`, `Validate`, `DlpRuleMatch`/`DLPRuleMatch` (two capitalizations 
 - `AdditionalFields` is native dynamic in both sources; Defender rows may carry an `@odata.type` wrapper key alongside the data. Direct property access (e.g. `.IsSatelliteProvider`) works in both.
 - `RawEventData` is native dynamic in both sources. Defender rows have an `@odata.type` prefix key that does not affect field access.
 - `DlpRuleMatch` and `DLPRuleMatch` both appear as distinct `ActionType` values. Normalize: `| extend ActionTypeLower = tolower(ActionType)` when grouping DLP events.
+- Some `RawEventData` sub-fields are stored as nested JSON strings (not native dicts): `AppAccessContext`, `PolicyMatchInfo`, `SensitiveInfoTypeData`. Use `parse_json(tostring(RawEventData.FieldName))` to access them.
 - `ISP` column is uppercase — docs sometimes show `Isp` which is wrong.
 - `IPTags`, `UserAgentTags`, `SessionData` are sparse/empty in most rows unless MDCA inline proxy is active.
 - `LastSeenForUser` and `UncommonForUser` populated only for high-value events — check for non-empty before relying on them.

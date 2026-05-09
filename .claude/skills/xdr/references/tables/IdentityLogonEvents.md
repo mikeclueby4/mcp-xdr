@@ -80,7 +80,7 @@ Blank on `LogonSuccess`. On `LogonFailed`, mix of short AD codes and long cloud 
 | `IsNtlmV1` | `"true"` / `"false"` string |
 | `Count` | Number of events aggregated into this row (string) |
 | `Category` | MDI threat category when flagged: `"Initial Access"`, `"Credential Access"`, `"Lateral Movement"` |
-| `AttackTechniques` | Comma-separated string (NOT JSON array) when MDI flags a technique, e.g. `"Valid Accounts (T1078), Domain Accounts (T1078.002)"` |
+| `AttackTechniques` | Comma-separated string (NOT JSON array) when MDI flags a technique, e.g. `"Valid Accounts (T1078), Domain Accounts (T1078.002)"`. Confirmed techniques in logon events: Kerberoasting (T1558.003), Valid Accounts (T1078.002), RDP (T1021.001). |
 | `SourceComputerId` / `SourceComputerObjectGuid` | Source device GUIDs |
 | `SourceComputerSid`, `SourceComputerOperatingSystem`, `SourceComputerOperatingSystemType` | Source device metadata |
 | `DestinationComputerObjectGuid`, `DestinationComputerOperatingSystem` | DC metadata |

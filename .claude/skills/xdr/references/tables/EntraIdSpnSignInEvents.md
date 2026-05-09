@@ -19,7 +19,7 @@ Uses `Timestamp` (not `TimeGenerated`). Sentinel 400 error — no Sentinel varia
 | `CorrelationId` | string | Sign-in event GUID (groups related requests) |
 | `RequestId` | string | Individual request GUID |
 | `ReportId` | string | GUID — globally unique per event; safe single-column join |
-| `UniqueTokenId` | string | Base64url token ID; use for cross-table token correlation |
+| `UniqueTokenId` | string | Base64url token ID (not a GUID); use for cross-table token correlation |
 | `SessionId` | string | Session identifier — populated when `IsConfidentialClient == true`; blank for public-client SPs |
 | `ResourceDisplayName` | string | Resource accessed |
 | `ResourceId` | string | Resource GUID |

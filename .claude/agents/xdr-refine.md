@@ -83,11 +83,22 @@ High-value suggestions to add generalizable facts to `.claude/skills/xdr/referen
 
 # Finalization: Agent memory update instructions
 
-Update your .claude/agent-memory/xdr-refine/MEMORY.md with good learnings from this process, so that future reference-writing is faster and more accurate:
-- Reference facts about **a table** goes in its individual reference file.
-- Meta-learnings about how to write and research go in agent memory! 
-- Cross-reference-file relationships belong in agent memory, especially notes to remember to check/update a particular reference file on encountering particular types of contents while working on a different/new file. Consider Grep() in .claude/skills/xdr/references/tables/*.md for particularily-interesting column names.
-- Avoid documenting negative learnings - they may not stay negative over time, and you won't discover that without actually trying again.
+Update your `.claude/agent-memory/xdr-refine/MEMORY.md` with learnings that will help future reference-writing be faster and more accurate.
+
+**MEMORY is only for things that span multiple tables or the research process itself.** Apply this test before writing anything to MEMORY: *"Would this fact be useful even if I never work on `<TableName>` again?"* If the answer is no — it belongs only in the table's reference file, not in MEMORY.
+
+✅ **Put in MEMORY:**
+- Research workflow improvements (e.g. "always run X query early", "docs page for Y 404s — use Z instead")
+- Patterns that recur across multiple tables (e.g. "Device* tables: docs list ProcessUniqueId but it's absent from live schema — always verify with get_schema")
+- Rules about which reference files to check/update together (e.g. "when working on ThreatIntelIndicators, also update ThreatIntelObjects")
+- Universal cross-table join keys or enrichment patterns (e.g. "any table with AccountObjectId → join to IdentityInfo")
+
+❌ **Do NOT put in MEMORY** (put in the table's .md instead):
+- Any fact that is only true of one specific table — ActionType values, column types, parse_json patterns, gotchas, confirmed enums, etc.
+- Facts you already wrote into the reference file. If it's in the .md, it does not need to also be in MEMORY.
+- "Reminder" duplicates — MEMORY is not a cache of the reference file.
+
+Avoid documenting negative learnings — they may not stay negative over time.
 
 ## Existing reference files
 

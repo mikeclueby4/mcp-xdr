@@ -117,6 +117,10 @@ Observed in this tenant (as of 2026-04):
 Common EventIDs absent in this tenant (not configured in audit policy, or domain-only):
 `4720` (user created), `4722-4726` (account management), `4728`/`4732`/`4756` (group membership), `4740` (account lockout), `4776` (NTLM validation) — these appear on AD domain controllers, not member servers.
 
+## No dynamic columns
+
+All ~200 columns are `string` or `int`. No `parse_json()` is needed anywhere in this table. The high column count exists because every possible Windows Security event field has a dedicated column; most are empty for any given EventID.
+
 ## Column sparsity
 
 The table has ~200 columns. The vast majority are empty for any given event — each EventID uses only a subset. Always `project` only relevant columns.
@@ -184,6 +188,10 @@ SecurityEvent
 | where TargetServerName !in ("localhost", Computer)
 | project TimeGenerated, Computer, SubjectUserName, TargetUserName, TargetServerName, IpAddress, CallerProcessName
 ```
+
+## When to use SecurityEvent vs MDE tables
+
+For MDE-enrolled endpoints, prefer `DeviceLogonEvents` (logon events) and `DeviceProcessEvents` (4688 analogue) — richer enrichment, `InitiatingProcessCommandLine` always populated (when available), and better process-tree context. Use `SecurityEvent` for machines without MDE coverage: Arc-connected servers, domain controllers, and legacy Windows machines covered only by MMA/AMA.
 
 ## Join with other tables
 
