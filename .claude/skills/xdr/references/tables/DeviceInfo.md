@@ -52,6 +52,12 @@ Blank for non-internet-facing devices.
 
 `"AAD Joined"`, `"Hybrid Azure AD Join"`, `"AAD Registered"`, or blank (not joined/unknown).
 
+**Not authoritative — can lag/lie.** `DeviceInfo.JoinType` and `DeviceInfo.IsAzureADJoined` are Defender-side attributes that can become stale (e.g. when a hybrid-joined device migrates to pure AAD, or when a `.local` FQDN suffix confuses the heuristic). For ground truth, cross-check with `EntraIdSignInEvents.DeviceTrustType` (`"Azure AD joined"` / `"Hybrid Azure AD joined"` / `"Azure AD registered"`) — Entra evaluates this per sign-in. If they disagree, **trust Entra**. Confirm by looking for actual on-prem dependency: `IdentityLogonEvents` Kerberos against the on-prem domain, and `DeviceNetworkEvents` to DCs on ports 389/636 (LDAP/LDAPS) or 3268/3269 (Global Catalog) from `lsass.exe`/`gpsvc`. Ports 53/88/445 alone are not hybrid-join evidence — Cloud Kerberos Trust + DNS lookups produce the same fingerprint on pure-AAD devices.
+
+## MachineGroup
+
+**Defender RBAC scope label, NOT Intune/MDM state.** Per Microsoft Learn: *"Machine group of the device. This group is used by role-based access control to determine access to the device."* Common values like `"UEM Devices"`, `"UnassignedGroup"`, or pilot/business-unit names are admin-defined Defender device groups for SOC visibility and role assignment — they say nothing about Intune enrollment or compliance. Do not infer "not Intune-managed" from `MachineGroup`. For Intune state use `EntraIdSignInEvents.IsManaged` / `IsCompliant` (per sign-in).
+
 ## OnboardingStatus — confirmed values (2026-04)
 
 `"Onboarded"`, `"Can be onboarded"`, `"Unsupported"`, `"Insufficient info"` (lost contact).
@@ -68,7 +74,30 @@ Different VLANs/subnets may NAT through different IPs — do not assume all devi
 
 ## DlpInfo (Defender-only string column)
 
-JSON object confirming DLP policy state. Keys: `IsDlpConfigurationValid`, `DlpPolicyLastModifiedTimeUTC`, `IsDlpEnabled`, `IsDefenderRealTimeProtectionEnabled`, `IsDefenderBehaviorMonitoringEnabled`, `HasDlpACBandwidthExceeded`, `HasDlpValidUpn`, `DlpUpn`. Values can be `null` for unsupported/IoT devices.
+JSON object carrying both DLP policy state and Defender protection state. **All values are `null` for IoT/printer/network devices** — only populated for `DeviceType in ("Workstation","Server")` endpoints. Parse with `parse_json(tostring(DlpInfo))`.
+
+| Key | Type | Semantics |
+|---|---|---|
+| `IsDefenderRealTimeProtectionEnabled` | bool/null | `true` = Defender real-time protection on |
+| `IsDefenderBehaviorMonitoringEnabled` | bool/null | `true` = behavior monitoring on |
+| `IsDlpEnabled` | bool/null | `true` = Endpoint DLP policy is enabled on the device |
+| `IsDlpConfigurationValid` | bool/null | `true` = DLP configuration applied successfully; `false` = misconfigured or policy error |
+| `DlpPolicyLastModifiedTimeUTC` | datetime string/null | Last time DLP policy was modified |
+| `HasDlpACBandwidthExceeded` | bool/null | Activity classification bandwidth exceeded |
+| `HasDlpValidUpn` | bool/null | UPN matches a licensed user for DLP |
+| `DlpUpn` | string/null | UPN of the last logged-on user against which DLP is evaluated |
+
+Pattern for device health queries:
+```kql
+| extend DlpParsed = parse_json(tostring(DlpInfo))
+| extend
+    IsRealTimeProtectionEnabled = tobool(DlpParsed.IsDefenderRealTimeProtectionEnabled),
+    IsBehaviorMonitoringEnabled = tobool(DlpParsed.IsDefenderBehaviorMonitoringEnabled),
+    IsDlpEnabled               = tobool(DlpParsed.IsDlpEnabled),
+    IsDlpConfigurationValid    = tobool(DlpParsed.IsDlpConfigurationValid)
+```
+
+**Important:** `IsDefenderRealTimeProtectionEnabled` and `IsDefenderBehaviorMonitoringEnabled` are Intune/DLP reporting fields, not real-time MDE sensor telemetry. They reflect what the compliance reporting layer last observed. For definitive current AV/protection state, cross-check with `DeviceTvmInfoGathering.AdditionalFields.AvMode`.
 
 ## DiscoverySources (Defender-only string column)
 

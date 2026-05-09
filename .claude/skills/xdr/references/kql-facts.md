@@ -39,7 +39,7 @@ TableA
 | where IPV6_MATCH(IPAddress, "1.2.3.4")
 ```
 
-When joining two tables on IPs, always normalize both sides with `parse_ipv6()` first — it handles IPv4, IPv6, and IPv6-mapped IPv4 (`::ffff:x.x.x.x`) and collapses them to the same canonical string. `ipv6_compare(a, b) == 0` is an alternative equality test. For `where` filters, `IPV6_MATCH()` is the most readable option. `ipv4_is_match()` also works for IPv4-only cases and handles both dotted-decimal and `::ffff:x.x.x.x` forms. `RemoteIPType == "FourToSixMapping"` can identify rows affected by this encoding.
+When joining two tables on IPs, always normalize both sides with `parse_ipv6()` first — it handles IPv4, IPv6, and IPv6-mapped IPv4 (`::ffff:x.x.x.x`) and collapses them to the same canonical string. `ipv6_compare(a, b) == 0` is an alternative equality test. For `where` filters, `IPV6_MATCH()` is the most readable option.
 
 ---
 

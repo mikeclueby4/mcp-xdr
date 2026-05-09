@@ -40,17 +40,17 @@ DeviceNetworkInfo
 | extend SubnetPrefix = toint(IP.SubnetPrefix)
 ```
 
-When filtering by IP value, `ipv6_is_match()` is mandatory — IPs may be IPv6-mapped:
+When filtering by IP value, `IPV6_MATCH()` is mandatory — IPs may be IPv6-mapped:
 
 ```kql
-| where ipv6_is_match(tostring(IP.IPAddress), "10.1.2.3")
+| where IPV6_MATCH(tostring(IP.IPAddress), "10.1.2.3")
 ```
 
 To exclude link-local explicitly (handles both native `169.254.x.x` and `::ffff:`-mapped form):
 
 ```kql
-| where not(ipv6_is_match(tostring(IP.IPAddress), "169.254.0.0", 112))
-| where not(ipv6_is_match(tostring(IP.IPAddress), "fe80::", 10))
+| where not(IPV6_MATCH(tostring(IP.IPAddress), "169.254.0.0", 112))
+| where not(IPV6_MATCH(tostring(IP.IPAddress), "fe80::", 10))
 ```
 
 ## ConnectedNetworks — WiFi SSID, internet status, network category

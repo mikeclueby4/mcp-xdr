@@ -35,7 +35,7 @@ union SigninLogs, AADNonInteractiveUserSignInLogs
 | Column | Notes |
 |---|---|
 | `UserPrincipalName` | Sign-in identity |
-| `IPAddress` | Source IP — use `ipv6_is_match()` for comparisons |
+| `IPAddress` | Source IP — use `IPV6_MATCH()` for comparisons |
 | `ResultType` | `"0"` = success; non-zero = error code (string, not int) |
 | `AppDisplayName` | Application name |
 | `LocationDetails` | JSON: `city`, `state`, `countryOrRegion`, `geoCoordinates` |

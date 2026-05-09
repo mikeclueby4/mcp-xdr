@@ -85,6 +85,7 @@ When a user describes a problem rather than naming a table, read the relevant pl
 | `…/investigations/mcp-servers.md` | Inventorying AI/MCP plugins in use across endpoints; "what MCP servers are people using?"; "is anyone using foo-tool with Claude?"; detecting AI tool integrations via `DeviceProcessEvents` and `DeviceNetworkEvents`. |
 | `…/investigations/uptime-as-patch-proxy.md` | "When did this server last reboot?"; "how stale is our Windows patching?"; "which servers haven't rebooted in N days?"; fleet-wide patch-staleness floor without WSUS/SCCM access. |
 | `…/investigations/device-health-compliance-drift.md` | Fleet health snapshot: Defender AV versions, real-time protection and behavior monitoring state, Intune compliance/managed state, DLP config validity, offline duration. "Which devices have real-time protection off?"; "show me our compliance posture"; "which devices are seasonally offline?"; "what Defender version is the fleet running?"; "are all workstations Intune-compliant?". |
+| `…/investigations/dns-resolver-health.md` | Fleet-wide DNS resolution problems, intermittent SERVFAIL, "Outlook autodiscover slow at login", suspected per-server DNS misconfiguration, asymmetric DNS errors between resolvers, stale forwarder/upstream-cache hypotheses. Also fires when a "VPN/wifi/connectivity" investigation reveals DNS-error asymmetry as the root cause. Includes `DnsConnectionInspected` event-source pitfalls, the canary-name strategy, and TTL-haircut as smoking-gun evidence for upstream forwarders. |
 
 ---
 

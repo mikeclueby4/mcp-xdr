@@ -21,7 +21,7 @@ Both Defender and Sentinel. Defender: `Timestamp`. Sentinel: `TimeGenerated` (sa
 | `DetectionMethods` | string | JSON-encoded dict of `{ThreatType: [method, ...]}`, e.g. `{"Phish":["URL malicious reputation"]}`. Blank when benign. Use `parse_json(DetectionMethods)` to access — it is `string`-typed. |
 | `IsClickedThrough` | bool | True = user clicked "Continue anyway" on the Safe Links warning page |
 | `UrlChain` | string | JSON-encoded string array of redirect chain URLs. `string`-typed — use `parse_json(UrlChain)` to access individual hops. |
-| `IPAddress` | string | Clicking user's public IP. May be IPv6 — use `ipv6_is_match()` for comparisons. |
+| `IPAddress` | string | Clicking user's public IP. May be IPv6 — use `IPV6_MATCH()` for comparisons. |
 | `ReportId` | string | GUID — globally unique per click. Safe single-column join. |
 | `SourceId` | string | Usually equals `NetworkMessageId` for email; blank for Teams/Office clicks. |
 

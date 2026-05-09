@@ -59,6 +59,9 @@ No `ReportId` column. Join to other tables on `DeviceId`.
 | `AvIsSignatureUptoDate` | `"True"`/`"False"` | |
 | `AvIsEngineUptodate` | `"True"`/`"False"` | |
 | `AvIsPlatformUptodate` | `"True"`/`"False"` | |
+| `AvSignatureUpdateTime` | datetime string | When the signature was last updated on the device |
+| `AvEngineUpdateTime` | datetime string | When the engine was last updated |
+| `AvPlatformUpdateTime` | datetime string | When the platform was last updated |
 | `AvSignatureRing` | e.g. `"2"` | Ring for gradual AV rollout |
 | `AvPlatformRing` | e.g. `"2"` | |
 | `AvEngineRing` | e.g. `"1"` | |

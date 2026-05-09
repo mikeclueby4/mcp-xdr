@@ -34,7 +34,7 @@ Flat columns extracted from the primary entity — present when the anomaly has 
 |---|---|
 | `UserName` | Short username only (no domain) |
 | `UserPrincipalName` | Full UPN |
-| `SourceIpAddress` | String — use `ipv6_is_match()` for IP comparisons |
+| `SourceIpAddress` | String — use `IPV6_MATCH()` for IP comparisons |
 | `SourceDevice` | Device name |
 | `DestinationIpAddress` | String — same caveat |
 | `DestinationDevice` | Device name |

@@ -25,7 +25,7 @@ Uses `Timestamp` (not `TimeGenerated`). Sentinel 400 error — no Sentinel varia
 | `ResourceId` | string | Resource GUID |
 | `ResourceTenantId` | string | Resource tenant GUID (cross-tenant calls: differs from `TenantId`) |
 | `TenantId` | string | Signing-in tenant GUID |
-| `IPAddress` | string | Use `ipv6_is_match()` for comparisons |
+| `IPAddress` | string | Use `IPV6_MATCH()` for comparisons |
 | `Country` / `State` / `City` | string | Flat geo — no `parse_json()` needed |
 | `Latitude` / `Longitude` | string | Geo coordinates as strings |
 | `GatewayJA4` | string | TLS fingerprint; populated when Global Secure Access is in path |

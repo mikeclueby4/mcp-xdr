@@ -18,43 +18,88 @@ Primary categories for identity/access audits:
 
 ---
 
-## RoleManagement — PIM operation name taxonomy (confirmed live)
+## RoleManagement — PIM operation name taxonomy (confirmed live 2026-05)
 
-Every PIM change generates **two** AuditLogs rows with the same `CorrelationId`:
-- Row 1: human actor (`InitiatedBy.user.userPrincipalName` populated) — the person who initiated
-- Row 2: system completion (`InitiatedBy.app.displayName == "MS-PIM"`, empty UPN) — backend execution
+Each PIM change emits a paired set of rows with the same `CorrelationId`:
+- Human row: `InitiatedBy.user.userPrincipalName` populated
+- System row: `InitiatedBy.app.displayName == "MS-PIM"`, empty UPN
 
-Always de-duplicate when summarizing, or you will double-count every PIM event:
+Filter to the `requested` row when extracting role names — the role `displayName` is reliably present there; on `completed` system rows the `Role` object in `TargetResources` may be missing or partial.
 
-```kql
-AuditLogs
-| where TimeGenerated > ago(7d)
-| where Category == "RoleManagement"
-| extend Actor = parse_json(tostring(InitiatedBy))
-| extend ActorUPN = tostring(Actor.user.userPrincipalName)
-| extend ActorApp = tostring(Actor.app.displayName)
-| extend ActorLabel = iff(ActorUPN != "", ActorUPN, iff(ActorApp != "", ActorApp, "System"))
-// De-duplicate: keep the human-actor row when both exist for the same correlation
-| summarize arg_min(iff(ActorUPN != "", 0, 1), *) by CorrelationId
-```
+Two distinct event families under `Category == "RoleManagement"` — do not conflate:
 
-Confirmed `OperationName` values under `Category == "RoleManagement"`:
+**Eligibility changes** (assignment of *who can activate*):
 
 | OperationName | Meaning |
 |---|---|
-| `Add eligible member to role in PIM completed` | PIM eligible assignment added (system row) |
-| `Remove eligible member from role in PIM completed` | PIM eligible assignment removed (system row) |
-| `Add member to role completed` | Direct (active/permanent) role assignment added |
-| `Remove member from role completed` | Direct (active/permanent) role assignment removed |
-| `Add member to role in PIM completed` | PIM time-bounded activation completed |
-| `Remove member from role in PIM completed` | PIM activation removed or expired |
-| `Update role setting in PIM` | PIM role policy changed (MFA requirement, max duration, etc.) |
-| `Add role assignment to role definition` | Role assigned at management-plane level |
-| `Remove role assignment from role definition` | Role removed at management-plane level |
+| `Add eligible member to role in PIM requested (timebound)` / `(permanent)` | Eligible assignment created (human row) |
+| `Add eligible member to role in PIM completed (timebound)` / `(permanent)` | Eligible assignment created (system row) |
+| `Remove eligible member from role in PIM requested ...` / `... completed ...` | Eligible assignment removed |
 
-The human-initiated row has a non-empty `userPrincipalName`; the paired system row has `ActorApp == "MS-PIM"`.
+**Activations** (eligible user actually exercising the role) — these are what daily admin workflow generates:
 
-**Permanently assigned roles do not generate PIM audit events** — no activate/deactivate entries will appear. If `AuditLogs` shows no PIM events for a user but their roles are visible elsewhere, the role is permanently (not eligible) assigned.
+| OperationName | Meaning |
+|---|---|
+| `Add member to role requested (PIM activation)` | User clicked Activate (human row) |
+| `Add member to role completed (PIM activation)` | Activation took effect (system row) |
+| `Add member to role approval requested (PIM activation)` | Activation needs approver (e.g. Global Admin role) |
+| `Add member to role request approved (PIM activation)` | Approver granted the activation |
+| `Remove member from role requested (PIM deactivate)` / `... completed (PIM deactivate)` | User clicked Deactivate |
+| `Remove member from role (PIM activation expired)` | Auto-expiry at end of activation window |
+
+**Direct (non-PIM) assignments:**
+
+| OperationName | Meaning |
+|---|---|
+| `Add member to role` / `Remove member from role` | Plain direct assignment (also fires alongside PIM activation as a side-effect) |
+| `Add role assignment to role definition` / `Remove ...` | Management-plane assignment |
+| `Update role setting in PIM` | PIM role policy change (MFA, max duration) |
+
+**Counting actual activations:** filter on `OperationName has "PIM activation" and OperationName has "requested"` — that gives one row per user action. The `Add member to role` plain rows duplicate activations; the `completed` system rows have empty UPN and missing role-name targets in some cases.
+
+**Permanent direct assignments do not generate PIM events** — nothing under `RoleManagement` for those users. Cross-check `IdentityInfo.AssignedRoles` for the always-on grants.
+
+### Canonical query: PIM activations per user (live-tested)
+
+```kql
+AuditLogs
+| where TimeGenerated > ago(90d)
+| where Category == "RoleManagement"
+| where OperationName has "PIM activation" and OperationName has "requested"
+| extend Actor = parse_json(tostring(InitiatedBy))
+| extend ActorUPN = tostring(Actor.user.userPrincipalName)
+| extend TargetArr = parse_json(tostring(TargetResources))
+// mv-apply extracts Role + User from TargetResources without unrolling the row (see kql-facts.md)
+| mv-apply T = TargetArr on (
+    summarize
+        RoleName  = take_anyif(tostring(T.displayName), tostring(T.type) == "Role"),
+        TargetUPN = take_anyif(tostring(T.userPrincipalName), tostring(T.type) == "User")
+)
+| summarize Activations = count(), Roles = make_set(RoleName), LastActivation = max(TimeGenerated)
+    by TargetUPN
+| order by Activations desc
+```
+
+### Canonical query: current PIM-eligible state from audit history
+
+`IdentityInfo.AssignedRoles` only shows permanent direct grants. To reconstruct *currently eligible* roles, replay add/remove ops keeping the latest per (user, role):
+
+```kql
+AuditLogs
+| where TimeGenerated > ago(365d)
+| where Category == "RoleManagement"
+| where OperationName has "eligible" and OperationName has "requested"
+| extend IsAdd = iff(OperationName has "Add", 1, 0)
+| extend TargetArr = parse_json(tostring(TargetResources))
+| mv-apply T = TargetArr on (
+    summarize
+        RoleName  = take_anyif(tostring(T.displayName), tostring(T.type) == "Role"),
+        TargetUPN = take_anyif(tostring(T.userPrincipalName), tostring(T.type) == "User")
+)
+| where isnotempty(TargetUPN) and isnotempty(RoleName)
+| summarize arg_max(TimeGenerated, IsAdd) by TargetUPN, RoleName
+| where IsAdd == 1
+```
 
 ---
 
@@ -89,23 +134,30 @@ Cross-reference the group `displayName` against known role-assignable group nami
 
 ## Parsing InitiatedBy and TargetResources
 
-Both columns are JSON blobs stored as strings — parse before access:
+Both columns are JSON blobs stored as strings — parse before access. `TargetResources` is an array of typed objects (one per entity touched by the operation): `"Role"`, `"User"`, `"ServicePrincipal"`, `"Group"`, `"Directory"`, `"Request"`, `"Other"`. A single PIM event commonly carries 5–6 elements.
 
 ```kql
 // Actor
 | extend Actor    = parse_json(tostring(InitiatedBy))
-| extend ActorUPN = tostring(Actor.user.userPrincipalName)   // null for SP actors
-| extend ActorApp = tostring(Actor.app.displayName)           // populated for SP/PIM actors
-
-// Target — JSON array of typed objects
-| extend TargetList = parse_json(tostring(TargetResources))
-| mv-expand Target = TargetList
-| extend TargetType        = tostring(Target.type)            // "Group", "User", "ServicePrincipal", "Role"
-| extend TargetDisplayName = tostring(Target.displayName)
-| extend TargetUPN         = tostring(Target.userPrincipalName)  // populated for User targets
+| extend ActorUPN = tostring(Actor.user.userPrincipalName)   // empty for SP/MS-PIM actors
+| extend ActorApp = tostring(Actor.app.displayName)           // populated for SP/MS-PIM actors
 ```
 
-For member-add/remove events: the `"Group"` object carries the group name; the `"User"` or `"ServicePrincipal"` object carries the member's UPN/displayName.
+**Use `mv-apply`, not `mv-expand`, when extracting from `TargetResources`.** `mv-expand` unrolls one row per array element (5–6× row multiplication, then a re-summarize to pivot back). `mv-apply` runs a sub-pipeline per row and returns the aggregated columns inline — same row count, no pivot step:
+
+```kql
+| extend TargetArr = parse_json(tostring(TargetResources))
+| mv-apply T = TargetArr on (
+    summarize
+        RoleName  = take_anyif(tostring(T.displayName),       tostring(T.type) == "Role"),
+        TargetUPN = take_anyif(tostring(T.userPrincipalName), tostring(T.type) == "User"),
+        GroupName = take_anyif(tostring(T.displayName),       tostring(T.type) == "Group")
+)
+```
+
+`take_anyif(value, predicate)` returns the value from the first array element matching the predicate, or null. Add one expression per type you need.
+
+**`Target.displayName` semantics depend on `Target.type`:** for `type == "Role"` it's the role name; for `type == "User"` it's the user's display name (NOT the role). Mixing them up is the most common bug — always pair the value-extractor with the type-predicate.
 
 **The `roles` array inside `InitiatedBy`/`TargetResources`** reflects roles used to *authorize that specific audit operation*, not the user's complete role assignments. It is routinely empty (`[]`) even for users with assigned roles.
 

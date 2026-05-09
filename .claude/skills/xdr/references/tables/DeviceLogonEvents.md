@@ -52,7 +52,7 @@ DeviceLogonEvents
 
 ## RemoteIP / RemoteIPType
 
-`RemoteIP` is populated for network-sourced logons. Use `ipv6_is_match()` — not string equality — as IPs may appear in IPv6-mapped form (`::ffff:x.x.x.x`). `RemoteIPType` values include `Public`, `Private`, `Loopback`, `Reserved`.
+`RemoteIP` is populated for network-sourced logons. Use `IPV6_MATCH()` — not string equality — as IPs may appear in IPv6-mapped form (`::ffff:x.x.x.x`). `RemoteIPType` values include `Public`, `Private`, `Loopback`, `Reserved`.
 
 For local logons, `RemoteIP` is typically `127.0.0.1` or blank.
 

@@ -29,7 +29,7 @@ All rows have `AuditSource = "Defender for Cloud Apps app connector"` in tenants
 | `AccountId` | string | MDCA-internal identifier — may be Entra object ID, UPN, or other depending on app. Less reliable than `AccountObjectId` for cross-table joins. |
 | `AccountType` | string | `Regular`, `Admin`, `System`, `Application` |
 | `OAuthAppId` | string | Entra client app ID (OAuth 2.0). Populated when `AccountType == "Application"`. Also populated for `Regular` (user) rows when an OAuth app performed the operation on behalf of the user via delegation. Sparse overall for user rows but always present when an OAuth app is involved. Join to `OAuthAppInfo.OAuthAppId`. |
-| `IPAddress` | string | May be IPv4 or IPv6. Use `ipv6_is_match()` for comparisons. |
+| `IPAddress` | string | May be IPv4 or IPv6. Use `IPV6_MATCH()` for comparisons. |
 | `IPCategory` | string | `VPN`, `Corporate`, `Cloud provider`, `Internal`, or empty |
 | `IPTags` | dynamic | Array of strings — ISP/provider tags from MDCA enrichment. **Sparse/empty in many tenants.** |
 | `ISP` | string | Column name is `ISP` (uppercase) — some docs show `Isp` which is wrong. |

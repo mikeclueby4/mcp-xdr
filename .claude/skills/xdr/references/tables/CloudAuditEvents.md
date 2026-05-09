@@ -28,7 +28,7 @@ Distinct from `CloudAppEvents` (MDCA SaaS app connector events) — `CloudAuditE
 | `AwsResourceName` | AWS ARN — AWS rows only. |
 | `GcpFullResourceName` | GCP resource name — GCP rows only. |
 | `Account` | For Azure rows: subscription GUID (not a UPN). For other platforms: varies. Actor identity lives in `RawEventData` — see below. |
-| `IPAddress` | Client IP. Azure rows: populated from `httpRequest.clientIpAddress`. Use `ipv6_is_match()` for comparisons. |
+| `IPAddress` | Client IP. Azure rows: populated from `httpRequest.clientIpAddress`. Use `IPV6_MATCH()` for comparisons. |
 | `ISP` | Column name is `ISP` (uppercase) — docs show `Isp` which is wrong. Blank in Azure rows. |
 | `UserAgent` | Blank in Azure rows. Populated for other platforms/ActionTypes. |
 | `RawEventData` | **Native dynamic** (confirmed `bag_keys()` works, `gettype()` = `"dictionary"`). Full source audit record. Rich for Azure rows — see fields below. `@odata.type` wrapper key present but harmless. |

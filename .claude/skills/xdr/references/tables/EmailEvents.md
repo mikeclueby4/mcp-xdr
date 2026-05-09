@@ -18,7 +18,7 @@ One row per email delivery event. Covers inbound, outbound, and intra-org mail. 
 | `SenderMailFromAddress` | string | MAIL FROM / envelope sender (Return-Path). Used for SPF evaluation. |
 | `SenderFromAddress` | string | FROM header — visible to recipient. May differ from `SenderMailFromAddress` in bulk/forwarded mail. |
 | `SenderFromDomain` / `SenderMailFromDomain` | string | Domain portions of the above. Divergence = common in bulk/newsletter senders (envelope uses bounce subdomain); also key indicator for domain spoofing detection. |
-| `SenderIPv4` / `SenderIPv6` | string | Last-hop sending MTA IP. Use `ipv6_is_match()` for comparisons — never string equality. |
+| `SenderIPv4` / `SenderIPv6` | string | Last-hop sending MTA IP. Use `IPV6_MATCH()` for comparisons — never string equality. |
 | `SenderObjectId` | string | Entra object ID of sender — only populated for internal senders. |
 | `RecipientEmailAddress` | string | Final recipient after DL expansion. |
 | `RecipientObjectId` | string | Entra object ID of recipient. |
@@ -168,7 +168,7 @@ EmailEvents
 - **`AuthenticationDetails`, `DetectionMethods`, `AdditionalFields`** are string-encoded JSON in Defender source — always use `parse_json()`.
 - **`LatestDeliveryLocation`/`LatestDeliveryAction`** reflect post-delivery state and are NOT available in the Streaming API. For at-processing state use `DeliveryAction`/`DeliveryLocation`.
 - **`ThreatTypes`** is a comma-separated string — use `has` not `==` for filtering: `| where ThreatTypes has "Phish"`.
-- **`SenderIPv4`/`SenderIPv6`** are separate columns (unlike some other tables). Check both when hunting by sender IP. Always use `ipv6_is_match()` for comparison.
+- **`SenderIPv4`/`SenderIPv6`** are separate columns (unlike some other tables). Check both when hunting by sender IP. Always use `IPV6_MATCH()` for comparison.
 - **`To`/`Cc`** are native dynamic arrays in both sources; RFC display format strings inside (e.g. `["Display Name <user@example.com>"]`).
 - **`IsFirstContact`** is `bool` — filter with `== true`, not `has`.
 - **`Context`** is sparsely populated; not documented with fixed enum values.

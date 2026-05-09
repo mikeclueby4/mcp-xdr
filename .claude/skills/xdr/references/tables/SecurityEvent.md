@@ -133,7 +133,7 @@ Confirmed always-empty in observed data:
 
 ## IpAddress gotcha
 
-`IpAddress` in SecurityEvent is a plain string — no automatic IPv6-mapped form observed in this table (unlike Defender XDR tables). Values are either plain IPv4, plain IPv6, or the literal dash `"-"`. Standard `==` comparison is safe for IP equality. Use `ipv6_is_match()` only if you expect IPv6-mapped IPv4 from specific data sources.
+`IpAddress` in SecurityEvent is a plain string — no automatic IPv6-mapped form observed in this table (unlike Defender XDR tables). Values are either plain IPv4, plain IPv6, or the literal dash `"-"`. Standard `==` comparison is safe for IP equality. Use `IPV6_MATCH()` only if you expect IPv6-mapped IPv4 from specific data sources.
 
 ## Account naming conventions
 
