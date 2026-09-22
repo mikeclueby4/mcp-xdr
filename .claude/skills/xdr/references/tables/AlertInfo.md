@@ -188,3 +188,5 @@ DeviceProcessEvents
 **`MachineGroup`, `ResourceType`, `ResourceID`, `SubscriptionId`, `SentinelWorkspaceIds`**: Defender-only columns. Using them in Sentinel queries causes semantic errors.
 
 **`AlertId` prefix `sn`**: Sentinel alerts have AlertIds starting with `sn`. These alerts originate from Sentinel analytics rules, not Defender detection engines. The `ServiceSource` column will be `"Microsoft Sentinel"`.
+
+**Cross-reference — `UrlClickEvents` malicious-click verdicts can arrive here ONLY, never backfilled to the click row.** Defender for Office 365 Safe Links can raise a retroactive alert (`ServiceSource = "Microsoft Defender for Office 365"`, `Category = "InitialAccess"`) hours after a click that was originally logged as `ActionType == "ClickAllowed"` with empty `ThreatTypes`. The `UrlClickEvents` row is never updated with the verdict. When hunting for malicious URL clicks, correlate `UrlClickEvents` to `AlertInfo`/`AlertEvidence` by `AccountUpn` + time window rather than trusting `UrlClickEvents.ThreatTypes` alone — see `UrlClickEvents.md` for the confirmed incident and query pattern.

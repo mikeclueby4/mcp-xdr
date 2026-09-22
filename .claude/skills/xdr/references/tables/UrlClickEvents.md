@@ -54,6 +54,60 @@ Both Defender and Sentinel. Defender: `Timestamp`. Sentinel: `TimeGenerated` (sa
 | where ThreatTypes has "Phish"
 ```
 
+## `ThreatTypes` is NOT retroactively backfilled — critical hunting gotcha
+
+Confirmed live (2026-09): a user clicked a phishing URL. The `UrlClickEvents` row recorded `ActionType == "ClickAllowed"`, `ThreatTypes` empty, `IsClickedThrough == 0` — i.e. looked completely benign at click time. ~24h later Defender for Office 365 raised a High-severity alert ("A potentially malicious URL click was detected", `Category = InitialAccess`, `ServiceSource = Microsoft Defender for Office 365`) for that exact click. **The `UrlClickEvents` row was never updated** — `ThreatTypes` stayed blank permanently. The verdict only exists in the `AlertInfo`/`AlertEvidence` layer, not in the click row.
+
+Tenant-scale evidence for how weak `ThreatTypes` is as a primary filter: over a 7-day window, 4042 total clicks, **0** had populated `ThreatTypes`, while 9 had `ActionType startswith "ClickBlocked"`. A healthy tenant can show `ThreatTypes` as near-universally empty even while active malicious clicks exist.
+
+**Implication: `where isnotempty(ThreatTypes)` or `where ThreatTypes has "Phish"` alone will MISS retroactively-detected malicious clicks — including the Microsoft official docs sample query for this table, which leads with the same `ThreatTypes has "Phish"` filter. Do not trust `ThreatTypes` as the sole hunting signal for malicious clicks; it only reflects the verdict known at click time (Safe Links time-of-click detonation), not post-click reclassification.**
+
+Correct approach: filter on `ActionType` (`ClickBlocked*` values) OR `IsClickedThrough == true`, AND separately correlate to `AlertInfo`/`AlertEvidence` by `AccountUpn` + time window to catch retroactive detections:
+```kql
+// Layer 1 — click-time signal (ActionType/IsClickedThrough), NOT ThreatTypes alone
+UrlClickEvents
+| where Timestamp > ago(7d)
+| where ActionType startswith "ClickBlocked" or IsClickedThrough == true or isnotempty(ThreatTypes)
+| project Timestamp, AccountUpn, Url, ActionType, IsClickedThrough, ThreatTypes, NetworkMessageId, IPAddress
+
+// Layer 2 — retroactive detections that never touched the click row.
+// AlertInfo/AlertEvidence carries the delayed verdict; UrlClickEvents does not.
+AlertInfo
+| where Timestamp > ago(7d)
+| where ServiceSource == "Microsoft Defender for Office 365"
+| where Category == "InitialAccess"
+| join kind=inner (AlertEvidence | where Timestamp > ago(7d)) on AlertId
+| join kind=inner (UrlClickEvents | where Timestamp > ago(8d)) on $left.AccountUpn == $right.AccountUpn
+| project AlertTime = Timestamp, Title, Severity, AccountUpn, Url, ClickTime = Timestamp1
+```
+
+## `has` vs `contains` on `Url` / `UrlChain` — do not use `has` for domain search
+
+Confirmed live (2026-09): `| where Url has "baddomain.com"` returned **zero** rows on data where `| where Url contains "baddomain"` returned 5. Cause: `has` is term-indexed (matches only whole alphanumeric tokens ≥3 chars, per [Kusto string operators](https://learn.microsoft.com/kusto/query/datatypes-string-operators)). When the payload domain is embedded inside a URL-encoded open-redirect wrapper — e.g. `https://www.google.com/url?q=https%3A%2F%2Fbaddomain.com%3F...` — percent-encoding (`%3A%2F%2F`) means the tokenizer never produces `baddomain.com` as a standalone term, so `has` silently cannot match it. This is the official documented behavior of `has` on any column, not a `UrlClickEvents`-specific bug — but it bites hard here because `Url`/`UrlChain` payloads are routinely percent-encoded.
+
+**Rule: use `contains` (or `matches regex`) — never `has` — when searching for a domain or substring inside `Url` or `UrlChain`.** Reserve `has` only for exact, unencoded whole-domain matches you've already confirmed are not URL-encoded.
+
+```kql
+// WRONG — silently misses percent-encoded payload domains
+UrlClickEvents | where Url has "example-bad-domain.com"
+
+// RIGHT
+UrlClickEvents | where Url contains "example-bad-domain.com"
+```
+
+**Open-redirect laundering pattern**: attackers wrap the real malicious destination in a high-reputation domain's open-redirect endpoint (`google.com/url?q=`, and similar patterns on other trusted redirector services) specifically so Safe Links evaluates the *wrapper* domain's reputation and returns `ClickAllowed`. Don't trust the top-level `Url` domain — parse `UrlChain` and inspect/decode the redirect target parameter:
+```kql
+UrlClickEvents
+| where Timestamp > ago(7d)
+| extend chain = parse_json(UrlChain)
+| mv-expand hop = chain
+| extend hop_s = tostring(hop)
+| extend query_ = tostring(parse_url(hop_s).["Query Parameters"])
+| extend decoded_target = url_decode(query_)
+| where decoded_target contains "example-bad-domain.com"
+```
+`url_decode()` is confirmed as the correct Kusto/ADX function name (percent-decoding); verified against official [`url_decode()`](https://learn.microsoft.com/kusto/query/url-decode-function) docs.
+
 ## Joining to Teams message tables
 
 For `Workload == "Teams"` clicks, `NetworkMessageId` is blank. Join to `MessageEvents` or `MessageUrlInfo` via `Url` or via `TeamsMessageId` if available on the click row. See `MessageEvents.md` for the join key and column details.
@@ -84,14 +138,16 @@ Note: `EmailUrlInfo` also joins on `NetworkMessageId` and has the URL entities �
 ## Hunting patterns
 
 **Phish clicks allowed through (highest priority hunting signal):**
+
+⚠️ **Do not lead with `ThreatTypes has "Phish"`** — confirmed live to miss real incidents where the malicious verdict arrived retroactively via `AlertInfo` and the click row itself was never updated (see `ThreatTypes` section above; this is also the flaw in Microsoft's own official sample query for this table). Use `ActionType`/`IsClickedThrough` as the primary signal, and treat `ThreatTypes` as a bonus enrichment, not a filter:
 ```kql
 UrlClickEvents
 | where Timestamp > ago(7d)
-| where ThreatTypes has "Phish"
-| where ActionType == "ClickAllowed" or IsClickedThrough == true
-| project Timestamp, AccountUpn, Url, ActionType, IsClickedThrough, NetworkMessageId, IPAddress
+| where ActionType startswith "ClickBlocked" or IsClickedThrough == true
+| project Timestamp, AccountUpn, Url, ActionType, IsClickedThrough, ThreatTypes, NetworkMessageId, IPAddress
 | sort by Timestamp desc
 ```
+Then separately run the `AlertInfo`/`AlertEvidence` correlation query above to catch clicks that were allowed at click time but reclassified later.
 
 **Anomaly detection — per-user click spike:**
 ```kql
@@ -110,6 +166,6 @@ UrlClickEvents
 UrlClickEvents
 | where Timestamp > ago(7d)
 | where Workload == "Teams"
-| where isnotempty(ThreatTypes)
-| project Timestamp, AccountUpn, AppName, Url, ActionType, ThreatTypes
+| where ActionType startswith "ClickBlocked" or IsClickedThrough == true or isnotempty(ThreatTypes)
+| project Timestamp, AccountUpn, AppName, Url, ActionType, IsClickedThrough, ThreatTypes
 ```
