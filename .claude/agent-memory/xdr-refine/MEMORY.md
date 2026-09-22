@@ -42,5 +42,11 @@ For dynamic columns with source-specific serialization, `parse_json(tostring(col
 
 ## Investigation playbook learnings
 
+### Verdict-column mutability: always check for a frozen/`Original*` counterpart before writing "current verdict" guidance
+When a table has both a live verdict column (e.g. `ThreatTypes`) and an `Original*`/frozen counterpart, prioritize documenting BOTH and their divergence — this is a recurring, high-value trap shape (confirmed in `EmailEvents` vs `UrlClickEvents`, which have opposite mutability behavior for the same-named `ThreatTypes` column). Cross-reference the two tables' reference files so readers of one see the contrast, and check `kql-facts.md` for a general "verdict mutability" entry before adding a third table-specific instance — extend the general entry instead of duplicating narrative.
+
+### Live schema samples can contain real tenant data — sanitize before quoting
+`get_schema()` sample rows pull from the live tenant and can include real domains/UPNs/org names even when researching a public repo. Never copy sample-row values verbatim into a reference file — always genericize to placeholders (`user@example.com`, `example.com`) before writing, even when the underlying pattern (e.g. an enum value or JSON shape) is worth preserving.
+
 ### Boot time / uptime from DeviceProcessEvents — use grandparent filter
 `InitiatingProcessFileName =~ "wininit.exe"` returns near-zero rows (early-boot child events filtered by MDE). Use `InitiatingProcessParentFileName =~ "wininit.exe"` to match grandchildren of wininit (service-spawned processes) — `InitiatingProcessParentCreationTime` on those rows is the boot timestamp of `services.exe` = host boot time. `max()` = last boot, `dcount()` = number of distinct boots in window. Playbook written at `investigations/uptime-as-patch-proxy.md`.

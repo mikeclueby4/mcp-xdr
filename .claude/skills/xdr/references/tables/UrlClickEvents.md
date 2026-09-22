@@ -62,6 +62,8 @@ Tenant-scale evidence for how weak `ThreatTypes` is as a primary filter: over a 
 
 **Implication: `where isnotempty(ThreatTypes)` or `where ThreatTypes has "Phish"` alone will MISS retroactively-detected malicious clicks — including the Microsoft official docs sample query for this table, which leads with the same `ThreatTypes has "Phish"` filter. Do not trust `ThreatTypes` as the sole hunting signal for malicious clicks; it only reflects the verdict known at click time (Safe Links time-of-click detonation), not post-click reclassification.**
 
+Contrast with `EmailEvents.ThreatTypes`, which behaves the **opposite** way: it IS rewritten in place on reclassification (see `EmailEvents.md` — `OriginalThreatTypes` preserves the delivery-time verdict there). Do not assume the two tables' same-named `ThreatTypes` column shares mutability semantics.
+
 Correct approach: filter on `ActionType` (`ClickBlocked*` values) OR `IsClickedThrough == true`, AND separately correlate to `AlertInfo`/`AlertEvidence` by `AccountUpn` + time window to catch retroactive detections:
 ```kql
 // Layer 1 — click-time signal (ActionType/IsClickedThrough), NOT ThreatTypes alone

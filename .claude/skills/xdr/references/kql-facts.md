@@ -186,6 +186,17 @@ The two `"string"` cases share the same `gettype()` signal — disambiguate by i
 **TSV sample-row trap:** the `Sample rows` view in `get_schema` renders native dynamic dictionaries as JSON text — visually identical to a string-encoded JSON column. **Never infer column type from sample appearance.** Trust `DefenderType` from the schema header, or run `gettype()` directly. (Notable case: `ThreatIntelIndicators.Data` and `AdditionalFields` are native dynamic in both Defender and Sentinel despite looking like JSON strings in the TSV.)
 
 
+#### **Verdict columns can be mutable (rewritten) or immutable (frozen) — and this varies per table, even for same-named columns**
+
+Threat/security verdicts often arrive asynchronously (detonation, campaign correlation, manual reclassification) — long after the event row was written. How a table handles that update is **not consistent across tables**, and the two known instances are opposite behaviors:
+
+- `EmailEvents.ThreatTypes`/`DetectionMethods`/`ConfidenceLevel` — **mutable**, rewritten in place on reclassification. The table also exposes an immutable delivery-time snapshot via `OriginalThreatTypes`/`OriginalDetectionMethods`/`OriginalConfidenceLevel`.
+- `UrlClickEvents.ThreatTypes` — **never backfilled**. A retroactive verdict lands only in `AlertInfo`/`AlertEvidence`, never touching the original click row.
+
+**Lesson:** never assume a verdict/threat column's mutability from its name or from another table's behavior. Before trusting a "final" read: (1) check whether the table has a frozen/`Original*` counterpart column, (2) if not, check whether retroactive verdicts surface in a different table entirely (`AlertInfo`/`AlertEvidence` is the common fallback), (3) verify empirically — pick a row with an empty verdict and see if it acquires one over time, or find a case where `AlertInfo` shows a threat classification with no matching row-level verdict.
+
+---
+
 #### **`ReportId` uniqueness differs by table family** 
 
 Two completely different semantics, same column name:
