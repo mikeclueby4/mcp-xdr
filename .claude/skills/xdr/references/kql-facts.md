@@ -70,6 +70,8 @@ If you need the short resource name as a display column, extract it from `_Resou
 
 These diverge from standard ADX/KQL and will silently produce parse errors or wrong results:
 
+#### **Reserved type names can't be `let` variable names** — `real`, `int`, `long`, `string`, `bool`, `datetime`, `dynamic`, `guid`, `decimal`, `timespan` are KQL scalar type names. `let real = …;` fails with the unhelpful *"The incomplete fragment is unexpected"* error, which doesn't point at the name. Use descriptive names (`genuineIds`, `baselineIps`).
+
 #### **No ternary operator** — `condition ? a : b` is not supported. Use `iff()`:
 ```kql
 // WRONG — parse error
@@ -220,6 +222,18 @@ DeviceNetworkEvents
 EmailEvents
 | join kind=inner EmailAttachmentInfo on ReportId
 ```
+
+---
+
+#### **IOC substring hunts against serialized blob columns false-positive on schema field names**
+
+Hunting a bare domain/string fragment with `contains` against a stringified blob column (`tostring(RawEventData)`, `tostring(AdditionalFields)`, raw XML/JSON audit payloads) can match the *name* of a schema field, not its value. Case-insensitive `contains` doesn't respect word boundaries: searching `contains "getfileurl"` for domain `getfileurl.com` matched thousands of unrelated rows because their payload had a `TargetFileUrl` key — `tar-GETFILEURL` (case-folded). Any hunted token that's a substring of a common field name (`FileUrl`, `SiteUrl`, `ObjectId`, `UserId`, `HostUrl`, …) risks this.
+
+**Mitigations:**
+- Include the dot + TLD in the search (`contains "getfileurl.com"`, not `contains "getfileurl"`) — field names don't contain dots.
+- Use `contains_cs` when the real value's case is known/fixed (schema field names are typically PascalCase; won't match a lowercase domain).
+- Filter `ActionType`/`EventType`/etc. first to shrink the row surface before the substring scan.
+- When in doubt, sanity-check hit volume against a tighter positive control (e.g. `contains_cs` count vs `contains` count) before trusting a broad IOC sweep.
 
 ---
 

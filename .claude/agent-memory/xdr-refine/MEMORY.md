@@ -48,5 +48,11 @@ When a table has both a live verdict column (e.g. `ThreatTypes`) and an `Origina
 ### Live schema samples can contain real tenant data — sanitize before quoting
 `get_schema()` sample rows pull from the live tenant and can include real domains/UPNs/org names even when researching a public repo. Never copy sample-row values verbatim into a reference file — always genericize to placeholders (`user@example.com`, `example.com`) before writing, even when the underlying pattern (e.g. an enum value or JSON shape) is worth preserving.
 
+### Existing reference docs can assert "no time column" incorrectly — verify with get_schema even for facts that look settled
+Found a reference file confidently stating a table has no time column (recommending join-only time filtering) when live schema + official docs both show a `Timestamp` column present all along. Always run `get_schema(table_name=...)` fresh even when updating a file that already documents the "shape" of a table — don't assume prior "no such column" claims are still (or were ever) fully correct without a quick live check.
+
+### IOC substring-hunt false positives against serialized blobs — now a kql-facts.md general entry
+Generalized fact added: `contains` searches for short IOC fragments (domain minus TLD, etc.) against stringified blob columns (`RawEventData`, `AdditionalFields`) can match schema field *names* (e.g. `TargetFileUrl` matching a `getfileurl` search). Don't re-derive this per-table — reference the kql-facts.md entry and only add a table-specific pointer/example if evidence is table-specific.
+
 ### Boot time / uptime from DeviceProcessEvents — use grandparent filter
 `InitiatingProcessFileName =~ "wininit.exe"` returns near-zero rows (early-boot child events filtered by MDE). Use `InitiatingProcessParentFileName =~ "wininit.exe"` to match grandchildren of wininit (service-spawned processes) — `InitiatingProcessParentCreationTime` on those rows is the boot timestamp of `services.exe` = host boot time. `max()` = last boot, `dcount()` = number of distinct boots in window. Playbook written at `investigations/uptime-as-patch-proxy.md`.

@@ -1,7 +1,7 @@
 # EmailUrlInfo
 
 **Source**: Microsoft Defender for Office 365 (MDO)  
-**Time column**: none — join to `EmailEvents` on `NetworkMessageId` for time  
+**Time column**: `Timestamp` — present and directly filterable (confirmed live + official docs; do not assume otherwise). Semantics: **URL-extraction/processing time, not delivery time** — verified 3–319s *earlier* than the matching `EmailEvents.Timestamp` (same `NetworkMessageId`) across a sample campaign. Pad time windows accordingly when time-filtering this table directly.  
 **ReportId**: `string` (GUID) — unique per event  
 **Prerequisite**: Defender for Office 365 deployed.
 
@@ -28,18 +28,22 @@ One row per URL extracted from an email. Multiple rows per message (one per URL)
 ### QR-phishing hunt
 ```kql
 EmailUrlInfo
+| where Timestamp > ago(7d)
 | where UrlLocation == "QRCode"
 | join kind=inner (
     EmailEvents
     | where Timestamp > ago(7d)
     | where DeliveryAction != "Blocked"
+    | project DeliveryTs=Timestamp, NetworkMessageId, SenderFromAddress, RecipientEmailAddress, Subject, DeliveryAction
 ) on NetworkMessageId
-| project Timestamp, SenderFromAddress, RecipientEmailAddress, Subject, Url, UrlDomain, DeliveryAction
+// rename EmailEvents.Timestamp to DeliveryTs before the join — see gotchas
+| project DeliveryTs, SenderFromAddress, RecipientEmailAddress, Subject, Url, UrlDomain, DeliveryAction
 ```
 
 ### URL redirect chain analysis
 ```kql
 EmailUrlInfo
+| where Timestamp > ago(7d)
 | where isnotempty(UrlChainId)
 | summarize ChainLength=max(UrlChainPosition)+1, Urls=make_list(Url) by UrlChainId, NetworkMessageId
 | where ChainLength > 1
@@ -71,4 +75,5 @@ EmailEvents
 - **Multiple rows per message** — use `dcount(NetworkMessageId)` to count distinct messages, not `count()`.
 - **`UrlChainId`/`UrlChainPosition`** are Defender-only; absent in Sentinel.
 - **`UrlLocation == "QRCode"`** is a documented value for URLs decoded from QR code images in email body.
-- No time column — always join to `EmailEvents` to apply time filters.
+- **`Timestamp` = extraction time, not delivery time.** It precedes the matching `EmailEvents.Timestamp` (same `NetworkMessageId`) by seconds to several minutes. Fine for a first-pass time-filtered sweep of URLs (cheaper than always joining to `EmailEvents`), but don't report it to a user as "when the email arrived."
+- **Join-then-project silently keeps the wrong Timestamp.** `EmailUrlInfo | join EmailEvents on NetworkMessageId | project Timestamp` resolves to the *left* table's column (extraction time) per standard KQL join column-collision rules — it looks like delivery time but isn't. Rename one side before projecting: `EmailUrlInfo | join kind=inner (EmailEvents | project DeliveryTs=Timestamp, NetworkMessageId, ...) on NetworkMessageId`.
